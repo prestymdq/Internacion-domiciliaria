@@ -40,12 +40,16 @@ export default async function AppLayout({
             <NavLink href="/dashboard" label="Dashboard" />
             <NavLink href="/patients" label="Pacientes" />
             <NavLink href="/episodes" label="Episodios" />
+            <NavLink href="/agenda" label="Agenda" />
             <NavLink href="/inventory/products" label="Productos" />
             <NavLink href="/inventory/warehouses" label="Depósitos" />
             <NavLink href="/inventory/stock" label="Movimientos" />
             <NavLink href="/logistics/orders" label="Órdenes" />
             <NavLink href="/logistics/picklists" label="Picklists" />
             <NavLink href="/logistics/deliveries" label="Entregas" />
+            <NavLink href="/payers" label="Obras sociales" />
+            <NavLink href="/authorizations" label="Autorizaciones" />
+            <NavLink href="/kpis" label="KPIs" />
             {isSuperAdmin ? (
               <>
                 <NavLink href="/onboarding" label="Onboarding" />

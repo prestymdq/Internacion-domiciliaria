@@ -72,6 +72,29 @@ enum IncidentCause {
   INCUMPLIMIENTO
 }
 
+enum VisitStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum AuthorizationStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  DENIED
+  SUSPENDED
+}
+
+enum RequirementStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
 model Tenant {
   id           String        @id @default(cuid())
   name         String
@@ -96,6 +119,13 @@ model Tenant {
   incidents    Incident[]
   auditLogs    AuditLog[]
   sequences    Sequence[]
+  payers       Payer[]
+  payerPlans   PayerPlan[]
+  payerRequirements PayerRequirement[]
+  authorizations Authorization[]
+  authorizationRequirements AuthorizationRequirement[]
+  visits       Visit[]
+  clinicalNotes ClinicalNote[]
 
   @@index([status])
 }
@@ -120,6 +150,10 @@ model User {
   stockMovementsCreated StockMovement[] @relation("StockMovementCreatedBy")
   deliveryEvidenceUploaded DeliveryEvidence[] @relation("DeliveryEvidenceUploadedBy")
   incidentsCreated Incident[] @relation("IncidentCreatedBy")
+  visitsAssigned Visit[] @relation("VisitAssignedUser")
+  visitsCreated Visit[] @relation("VisitCreatedBy")
+  clinicalNotesAuthored ClinicalNote[] @relation("ClinicalNoteAuthor")
+  authorizationRequirementUploads AuthorizationRequirement[] @relation("AuthorizationRequirementUploadedBy")
 
   @@index([tenantId, role])
 }
@@ -186,6 +220,9 @@ model Patient {
 
   episodes   Episode[]
   approvedOrders ApprovedOrder[]
+  visits     Visit[]
+  clinicalNotes ClinicalNote[]
+  authorizations Authorization[]
 
   @@unique([tenantId, dni])
   @@index([tenantId, lastName])
@@ -204,6 +241,10 @@ model Episode {
   notes      String?
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
+
+  visits       Visit[]
+  clinicalNotes ClinicalNote[]
+  authorizations Authorization[]
 
   @@index([tenantId, patientId])
 }
@@ -224,6 +265,7 @@ model Product {
   kitItems    KitTemplateItem[]
   approvedOrderItems ApprovedOrderItem[]
   pickListItems PickListItem[]
+  visitItems  VisitItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, name])
@@ -419,6 +461,157 @@ model Incident {
   pickListItems PickListItem[]
 
   @@index([tenantId, cause])
+}
+
+model Payer {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  code      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plans       PayerPlan[]
+  requirements PayerRequirement[]
+  authorizations Authorization[]
+
+  @@unique([tenantId, name])
+}
+
+model PayerPlan {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  payerId   String
+  payer     Payer    @relation(fields: [payerId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authorizations Authorization[]
+
+  @@unique([tenantId, payerId, name])
+}
+
+model PayerRequirement {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  payerId   String
+  payer     Payer    @relation(fields: [payerId], references: [id], onDelete: Cascade)
+  name      String
+  isRequired Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authorizationRequirements AuthorizationRequirement[]
+
+  @@index([tenantId, payerId])
+}
+
+model Authorization {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  payerId   String
+  payer     Payer    @relation(fields: [payerId], references: [id])
+  planId    String?
+  plan      PayerPlan? @relation(fields: [planId], references: [id])
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  episodeId String?
+  episode   Episode? @relation(fields: [episodeId], references: [id])
+  number    String
+  status    AuthorizationStatus @default(PENDING)
+  startDate DateTime
+  endDate   DateTime?
+  limitAmount Float?
+  limitUnits Int?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requirements AuthorizationRequirement[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, payerId])
+  @@index([tenantId, patientId])
+}
+
+model AuthorizationRequirement {
+  id             String   @id @default(cuid())
+  authorizationId String
+  authorization  Authorization @relation(fields: [authorizationId], references: [id], onDelete: Cascade)
+  requirementId  String
+  requirement    PayerRequirement @relation(fields: [requirementId], references: [id])
+  status         RequirementStatus @default(PENDING)
+  fileKey        String?
+  fileUrl        String?
+  fileName       String?
+  mimeType       String?
+  size           Int?
+  uploadedById   String?
+  uploadedBy     User?    @relation("AuthorizationRequirementUploadedBy", fields: [uploadedById], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([authorizationId])
+}
+
+model Visit {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  patientId    String
+  patient      Patient  @relation(fields: [patientId], references: [id])
+  episodeId    String?
+  episode      Episode? @relation(fields: [episodeId], references: [id])
+  assignedUserId String?
+  assignedUser User?    @relation("VisitAssignedUser", fields: [assignedUserId], references: [id])
+  createdById  String?
+  createdBy    User?    @relation("VisitCreatedBy", fields: [createdById], references: [id])
+  status       VisitStatus @default(SCHEDULED)
+  scheduledAt  DateTime
+  checkInAt    DateTime?
+  checkOutAt   DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  clinicalNotes ClinicalNote[]
+  items         VisitItem[]
+
+  @@index([tenantId, scheduledAt])
+  @@index([tenantId, status])
+}
+
+model ClinicalNote {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  episodeId String?
+  episode   Episode? @relation(fields: [episodeId], references: [id])
+  visitId   String?
+  visit     Visit?   @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation("ClinicalNoteAuthor", fields: [authorId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, patientId])
+}
+
+model VisitItem {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Int
+  createdAt DateTime @default(now())
 }
 
 model AuditLog {
