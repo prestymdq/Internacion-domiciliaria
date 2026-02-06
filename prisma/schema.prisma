@@ -284,6 +284,7 @@ model Product {
   approvedOrderItems ApprovedOrderItem[]
   pickListItems PickListItem[]
   visitItems  VisitItem[]
+  invoiceItems InvoiceItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, name])
@@ -446,6 +447,7 @@ model Delivery {
   updatedAt      DateTime      @updatedAt
 
   evidence       DeliveryEvidence[]
+  invoiceItems   InvoiceItem[]
 
   @@index([tenantId, status])
   @@unique([tenantId, deliveryNumber])

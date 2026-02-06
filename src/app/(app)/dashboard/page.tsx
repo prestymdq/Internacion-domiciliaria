@@ -13,7 +13,7 @@ export default async function DashboardPage() {
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <p className="text-sm text-muted-foreground">
-          Seleccioná un tenant para ver KPIs.
+          Selecciona un tenant para ver KPIs.
         </p>
       </div>
     );
@@ -24,7 +24,14 @@ export default async function DashboardPage() {
     return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
-  const [patients, episodes, deliveries, incidents, visitsScheduled, visitsCompleted] = await Promise.all([
+  const [
+    patients,
+    episodes,
+    deliveries,
+    incidents,
+    visitsScheduled,
+    visitsCompleted,
+  ] = await Promise.all([
     prisma.patient.count({ where: { tenantId } }),
     prisma.episode.count({ where: { tenantId, status: "ACTIVE" } }),
     prisma.delivery.count({ where: { tenantId, status: "DELIVERED" } }),
@@ -38,34 +45,26 @@ export default async function DashboardPage() {
       <div>
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <p className="text-sm text-muted-foreground">
-          KPIs operativos del día (MVP).
+          Pulso operativo del dia y cumplimiento.
         </p>
       </div>
-      <div className="grid gap-4 md:grid-cols-6">
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground">Pacientes activos</p>
-          <p className="text-2xl font-semibold">{patients}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground">Episodios activos</p>
-          <p className="text-2xl font-semibold">{episodes}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground">Visitas programadas</p>
-          <p className="text-2xl font-semibold">{visitsScheduled}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground">Visitas completadas</p>
-          <p className="text-2xl font-semibold">{visitsCompleted}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground">Entregas OK</p>
-          <p className="text-2xl font-semibold">{deliveries}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/30 p-4">
-          <p className="text-sm text-muted-foreground">Incidentes</p>
-          <p className="text-2xl font-semibold">{incidents}</p>
-        </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        {[
+          { label: "Pacientes activos", value: patients },
+          { label: "Episodios activos", value: episodes },
+          { label: "Visitas programadas", value: visitsScheduled },
+          { label: "Visitas completadas", value: visitsCompleted },
+          { label: "Entregas OK", value: deliveries },
+          { label: "Incidentes", value: incidents },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-2xl border border-white/70 bg-white/70 p-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.6)]"
+          >
+            <p className="text-sm text-muted-foreground">{stat.label}</p>
+            <p className="text-2xl font-semibold">{stat.value}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
