@@ -9,11 +9,20 @@ export async function nextSequence(tenantId: string, key: string) {
   return seq.value;
 }
 
+export function formatDeliveryNumber(
+  date: Date,
+  sequence: number,
+): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const padded = `${sequence}`.padStart(6, "0");
+  return `DEL-${year}${month}-${padded}`;
+}
+
 export async function nextDeliveryNumber(tenantId: string, date = new Date()) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const key = `delivery:${year}${month}`;
   const seq = await nextSequence(tenantId, key);
-  const padded = `${seq}`.padStart(6, "0");
-  return `DEL-${year}${month}-${padded}`;
+  return formatDeliveryNumber(date, seq);
 }

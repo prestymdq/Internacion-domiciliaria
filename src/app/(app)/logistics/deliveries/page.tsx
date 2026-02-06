@@ -1,0 +1,280 @@
+import { revalidatePath } from "next/cache";
+import { getServerSession } from "next-auth";
+import { z } from "zod";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { logAudit } from "@/lib/audit";
+import { assertRole } from "@/lib/rbac";
+import { Role } from "@prisma/client";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+
+const transitSchema = z.object({
+  deliveryId: z.string().min(1),
+  carrierName: z.string().min(1),
+  carrierDni: z.string().min(4),
+});
+
+const deliveredSchema = z.object({
+  deliveryId: z.string().min(1),
+  receiverName: z.string().min(1),
+  receiverDni: z.string().min(4),
+  receiverRelation: z.string().min(1),
+});
+
+async function markInTransit(formData: FormData) {
+  "use server";
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.tenantId) {
+    throw new Error("UNAUTHORIZED");
+  }
+  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+
+  const parsed = transitSchema.safeParse({
+    deliveryId: formData.get("deliveryId"),
+    carrierName: formData.get("carrierName"),
+    carrierDni: formData.get("carrierDni"),
+  });
+
+  if (!parsed.success) {
+    throw new Error("VALIDATION_ERROR");
+  }
+
+  const delivery = await prisma.delivery.update({
+    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+    data: {
+      status: "IN_TRANSIT",
+      inTransitAt: new Date(),
+      carrierName: parsed.data.carrierName,
+      carrierDni: parsed.data.carrierDni,
+      carrierSignedAt: new Date(),
+    },
+  });
+
+  await logAudit({
+    tenantId: session.user.tenantId,
+    actorId: session.user.id,
+    action: "delivery.in_transit",
+    entityType: "Delivery",
+    entityId: delivery.id,
+  });
+
+  revalidatePath("/logistics/deliveries");
+}
+
+async function markDelivered(formData: FormData) {
+  "use server";
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.tenantId) {
+    throw new Error("UNAUTHORIZED");
+  }
+  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+
+  const parsed = deliveredSchema.safeParse({
+    deliveryId: formData.get("deliveryId"),
+    receiverName: formData.get("receiverName"),
+    receiverDni: formData.get("receiverDni"),
+    receiverRelation: formData.get("receiverRelation"),
+  });
+
+  if (!parsed.success) {
+    throw new Error("VALIDATION_ERROR");
+  }
+
+  const minEvidence = Number(process.env.DELIVERY_MIN_EVIDENCE ?? "1");
+  const evidenceCount = await prisma.deliveryEvidence.count({
+    where: { deliveryId: parsed.data.deliveryId },
+  });
+
+  if (evidenceCount < minEvidence) {
+    throw new Error("EVIDENCE_REQUIRED");
+  }
+
+  const delivery = await prisma.delivery.update({
+    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+    data: {
+      status: "DELIVERED",
+      deliveredAt: new Date(),
+      receiverName: parsed.data.receiverName,
+      receiverDni: parsed.data.receiverDni,
+      receiverRelation: parsed.data.receiverRelation,
+      receiverSignedAt: new Date(),
+    },
+  });
+
+  await logAudit({
+    tenantId: session.user.tenantId,
+    actorId: session.user.id,
+    action: "delivery.delivered",
+    entityType: "Delivery",
+    entityId: delivery.id,
+  });
+
+  revalidatePath("/logistics/deliveries");
+}
+
+async function closeDelivery(formData: FormData) {
+  "use server";
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.tenantId) {
+    throw new Error("UNAUTHORIZED");
+  }
+  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+
+  const deliveryId = String(formData.get("deliveryId") ?? "");
+  if (!deliveryId) throw new Error("VALIDATION_ERROR");
+
+  const delivery = await prisma.delivery.update({
+    where: { id: deliveryId, tenantId: session.user.tenantId },
+    data: { status: "CLOSED", closedAt: new Date() },
+  });
+
+  await logAudit({
+    tenantId: session.user.tenantId,
+    actorId: session.user.id,
+    action: "delivery.closed",
+    entityType: "Delivery",
+    entityId: delivery.id,
+  });
+
+  revalidatePath("/logistics/deliveries");
+}
+
+export default async function DeliveriesPage() {
+  const session = await getServerSession(authOptions);
+  const tenantId = session?.user?.tenantId;
+
+  if (!tenantId) {
+    return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
+  }
+
+  const deliveries = await prisma.delivery.findMany({
+    where: { tenantId },
+    include: {
+      approvedOrder: { include: { patient: true } },
+      evidence: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">Entregas</h1>
+        <p className="text-sm text-muted-foreground">
+          Doble firma + evidencia obligatoria.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {deliveries.map((delivery) => (
+          <div key={delivery.id} className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-medium">
+                  {delivery.deliveryNumber}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Paciente: {delivery.approvedOrder.patient.lastName},{" "}
+                  {delivery.approvedOrder.patient.firstName}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Estado: {delivery.status}
+                </div>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/api/deliveries/${delivery.id}/pdf`}>
+                  PDF remito
+                </Link>
+              </Button>
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <form
+                action={`/api/deliveries/${delivery.id}/evidence`}
+                method="post"
+                encType="multipart/form-data"
+                className="rounded-md border p-3"
+              >
+                <input type="hidden" name="deliveryId" value={delivery.id} />
+                <input name="file" type="file" required />
+                <Button size="sm" type="submit" className="mt-2">
+                  Subir evidencia
+                </Button>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Evidencia: {delivery.evidence.length}
+                </p>
+                {delivery.evidence.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {delivery.evidence.map((evidence) => (
+                      <li key={evidence.id}>{evidence.fileName}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </form>
+
+              {delivery.status === "PACKED" ? (
+                <form action={markInTransit} className="rounded-md border p-3">
+                  <input type="hidden" name="deliveryId" value={delivery.id} />
+                  <Input
+                    name="carrierName"
+                    placeholder="Retirante"
+                    required
+                  />
+                  <Input
+                    name="carrierDni"
+                    placeholder="DNI retirante"
+                    required
+                    className="mt-2"
+                  />
+                  <Button size="sm" type="submit" className="mt-2">
+                    Marcar en tránsito
+                  </Button>
+                </form>
+              ) : null}
+
+              {delivery.status === "IN_TRANSIT" ? (
+                <form action={markDelivered} className="rounded-md border p-3">
+                  <input type="hidden" name="deliveryId" value={delivery.id} />
+                  <Input
+                    name="receiverName"
+                    placeholder="Receptor"
+                    required
+                  />
+                  <Input
+                    name="receiverDni"
+                    placeholder="DNI receptor"
+                    required
+                    className="mt-2"
+                  />
+                  <Input
+                    name="receiverRelation"
+                    placeholder="Vínculo"
+                    required
+                    className="mt-2"
+                  />
+                  <Button size="sm" type="submit" className="mt-2">
+                    Marcar entregado
+                  </Button>
+                </form>
+              ) : null}
+
+              {delivery.status === "DELIVERED" ? (
+                <form action={closeDelivery} className="rounded-md border p-3">
+                  <input type="hidden" name="deliveryId" value={delivery.id} />
+                  <Button size="sm" type="submit">
+                    Cerrar entrega
+                  </Button>
+                </form>
+              ) : null}
+            </div>
+          </div>
+        ))}
+        {deliveries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Sin entregas aún.</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
