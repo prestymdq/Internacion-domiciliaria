@@ -8,6 +8,8 @@ import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+import AccessDenied from "@/components/app/access-denied";
 
 const productSchema = z.object({
   name: z.string().min(1),
@@ -64,6 +66,11 @@ export default async function ProductsPage() {
 
   if (!tenantId) {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "INVENTORY");
+  if (!access.allowed) {
+    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
   const products = await prisma.product.findMany({

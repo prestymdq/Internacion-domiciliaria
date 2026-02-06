@@ -9,6 +9,8 @@ import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+import AccessDenied from "@/components/app/access-denied";
 
 const episodeSchema = z.object({
   patientId: z.string().min(1),
@@ -103,6 +105,11 @@ export default async function EpisodesPage() {
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "CLINIC");
+  if (!access.allowed) {
+    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
   const [patients, episodes] = await Promise.all([

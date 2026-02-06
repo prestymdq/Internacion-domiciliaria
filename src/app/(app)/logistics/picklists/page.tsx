@@ -9,6 +9,8 @@ import { nextDeliveryNumber } from "@/lib/sequence";
 import { IncidentCause, Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+import AccessDenied from "@/components/app/access-denied";
 
 const incidentSchema = z.object({
   pickListItemId: z.string().min(1),
@@ -220,6 +222,11 @@ export default async function PickListsPage() {
 
   if (!tenantId) {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "LOGISTICS");
+  if (!access.allowed) {
+    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
   const pickLists = await prisma.pickList.findMany({

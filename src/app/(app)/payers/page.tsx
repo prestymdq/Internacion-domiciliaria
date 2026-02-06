@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+import AccessDenied from "@/components/app/access-denied";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -137,6 +139,11 @@ export default async function PayersPage() {
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "PAYERS");
+  if (!access.allowed) {
+    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
   const payers = await prisma.payer.findMany({

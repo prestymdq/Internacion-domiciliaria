@@ -8,6 +8,8 @@ import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+import AccessDenied from "@/components/app/access-denied";
 
 const patientSchema = z.object({
   firstName: z.string().min(1),
@@ -66,6 +68,11 @@ export default async function PatientsPage() {
 
   if (!tenantId) {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "CLINIC");
+  if (!access.allowed) {
+    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
   const patients = await prisma.patient.findMany({

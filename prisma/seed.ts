@@ -40,6 +40,15 @@ async function main() {
     },
   });
 
+  await prisma.tenantPolicy.upsert({
+    where: { tenantId: tenant.id },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      pastDueBlockedModules: ["LOGISTICS", "INVENTORY"],
+    },
+  });
+
   const tenantAdminEmail =
     process.env.DEFAULT_TENANT_ADMIN_EMAIL ?? "admin@demo.local";
   const tenantAdminPassword =
