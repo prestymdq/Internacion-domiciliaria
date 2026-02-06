@@ -541,6 +541,8 @@ model Authorization {
 
 model AuthorizationRequirement {
   id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
   authorizationId String
   authorization  Authorization @relation(fields: [authorizationId], references: [id], onDelete: Cascade)
   requirementId  String
@@ -557,6 +559,7 @@ model AuthorizationRequirement {
   updatedAt      DateTime @updatedAt
 
   @@index([authorizationId])
+  @@index([tenantId])
 }
 
 model Visit {
