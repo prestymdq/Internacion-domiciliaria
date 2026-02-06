@@ -26,3 +26,18 @@ export async function nextDeliveryNumber(tenantId: string, date = new Date()) {
   const seq = await nextSequence(tenantId, key);
   return formatDeliveryNumber(date, seq);
 }
+
+export function formatInvoiceNumber(date: Date, sequence: number): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const padded = `${sequence}`.padStart(6, "0");
+  return `INV-${year}${month}-${padded}`;
+}
+
+export async function nextInvoiceNumber(tenantId: string, date = new Date()) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const key = `invoice:${year}${month}`;
+  const seq = await nextSequence(tenantId, key);
+  return formatInvoiceNumber(date, seq);
+}

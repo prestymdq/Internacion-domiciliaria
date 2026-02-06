@@ -95,6 +95,14 @@ enum RequirementStatus {
   REJECTED
 }
 
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
 model Tenant {
   id           String        @id @default(cuid())
   name         String
@@ -128,6 +136,9 @@ model Tenant {
   clinicalNotes ClinicalNote[]
   subscription TenantSubscription?
   policy       TenantPolicy?
+  invoices     Invoice[]
+  debitNotes   DebitNote[]
+  payments     Payment[]
 
   @@index([status])
 }
@@ -156,6 +167,9 @@ model User {
   visitsCreated Visit[] @relation("VisitCreatedBy")
   clinicalNotesAuthored ClinicalNote[] @relation("ClinicalNoteAuthor")
   authorizationRequirementUploads AuthorizationRequirement[] @relation("AuthorizationRequirementUploadedBy")
+  invoicesCreated Invoice[] @relation("InvoiceCreatedBy")
+  debitNotesCreated DebitNote[] @relation("DebitNoteCreatedBy")
+  paymentsCreated Payment[] @relation("PaymentCreatedBy")
 
   @@index([tenantId, role])
 }
@@ -225,6 +239,7 @@ model Patient {
   visits     Visit[]
   clinicalNotes ClinicalNote[]
   authorizations Authorization[]
+  invoices Invoice[]
 
   @@unique([tenantId, dni])
   @@index([tenantId, lastName])
@@ -477,6 +492,7 @@ model Payer {
   plans       PayerPlan[]
   requirements PayerRequirement[]
   authorizations Authorization[]
+  invoices Invoice[]
 
   @@unique([tenantId, name])
 }
@@ -587,6 +603,86 @@ model TenantPolicy {
   pastDueBlockedModules   Json?
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  payerId       String
+  payer         Payer         @relation(fields: [payerId], references: [id])
+  patientId     String
+  patient       Patient       @relation(fields: [patientId], references: [id])
+  status        InvoiceStatus @default(ISSUED)
+  invoiceNumber String
+  currency      String        @default("ARS")
+  issuedAt      DateTime      @default(now())
+  dueDate       DateTime?
+  totalAmount   Float         @default(0)
+  notes         String?
+  createdById   String?
+  createdBy     User?         @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  items        InvoiceItem[]
+  debitNotes   DebitNote[]
+  payments     Payment[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, payerId])
+  @@index([tenantId, patientId])
+}
+
+model InvoiceItem {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  deliveryId    String?
+  delivery      Delivery? @relation(fields: [deliveryId], references: [id])
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  description   String?
+  quantity      Int
+  unitPrice     Float
+  total         Float
+  evidenceCount Int      @default(0)
+  evidenceMeta  Json?
+  createdAt     DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+model DebitNote {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount      Float
+  reason      String
+  createdById String?
+  createdBy   User?    @relation("DebitNoteCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, invoiceId])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount      Float
+  method      String?
+  reference   String?
+  paidAt      DateTime @default(now())
+  createdById String?
+  createdBy   User?    @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, invoiceId])
 }
 
 model Visit {

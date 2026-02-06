@@ -203,6 +203,18 @@ export default async function BillingPage() {
           <Button asChild size="sm" variant="secondary">
             <Link href="/billing/preliquidation">Pre-liquidación</Link>
           </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/billing/invoices">Facturas</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/billing/debits">Débitos</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/billing/payments">Pagos</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/billing/aging">Aging</Link>
+          </Button>
         </div>
       </div>
 
