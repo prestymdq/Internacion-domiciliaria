@@ -1,4 +1,9 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CreateBucketCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({
   region: process.env.S3_REGION ?? "us-east-1",
@@ -15,6 +20,14 @@ const s3 = new S3Client({
 const bucket = process.env.S3_BUCKET ?? "";
 const publicBaseUrl = process.env.S3_PUBLIC_URL ?? "";
 
+async function ensureBucketExists() {
+  try {
+    await s3.send(new HeadBucketCommand({ Bucket: bucket }));
+  } catch {
+    await s3.send(new CreateBucketCommand({ Bucket: bucket }));
+  }
+}
+
 export async function uploadEvidenceObject(params: {
   key: string;
   body: Buffer;
@@ -23,6 +36,8 @@ export async function uploadEvidenceObject(params: {
   if (!bucket) {
     throw new Error("S3_BUCKET is not configured");
   }
+
+  await ensureBucketExists();
 
   await s3.send(
     new PutObjectCommand({

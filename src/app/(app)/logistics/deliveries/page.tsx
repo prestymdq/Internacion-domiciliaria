@@ -41,8 +41,16 @@ async function markInTransit(formData: FormData) {
     throw new Error("VALIDATION_ERROR");
   }
 
-  const delivery = await prisma.delivery.update({
+  const delivery = await prisma.delivery.findFirst({
     where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+  });
+
+  if (!delivery || delivery.status !== "PACKED") {
+    throw new Error("INVALID_STATUS");
+  }
+
+  const updated = await prisma.delivery.update({
+    where: { id: delivery.id },
     data: {
       status: "IN_TRANSIT",
       inTransitAt: new Date(),
@@ -57,7 +65,7 @@ async function markInTransit(formData: FormData) {
     actorId: session.user.id,
     action: "delivery.in_transit",
     entityType: "Delivery",
-    entityId: delivery.id,
+    entityId: updated.id,
   });
 
   revalidatePath("/logistics/deliveries");
@@ -82,6 +90,18 @@ async function markDelivered(formData: FormData) {
     throw new Error("VALIDATION_ERROR");
   }
 
+  const delivery = await prisma.delivery.findFirst({
+    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+  });
+
+  if (!delivery || delivery.status !== "IN_TRANSIT") {
+    throw new Error("INVALID_STATUS");
+  }
+
+  if (!delivery.carrierName || !delivery.carrierDni) {
+    throw new Error("CARRIER_SIGNATURE_REQUIRED");
+  }
+
   const minEvidence = Number(process.env.DELIVERY_MIN_EVIDENCE ?? "1");
   const evidenceCount = await prisma.deliveryEvidence.count({
     where: { deliveryId: parsed.data.deliveryId },
@@ -91,7 +111,7 @@ async function markDelivered(formData: FormData) {
     throw new Error("EVIDENCE_REQUIRED");
   }
 
-  const delivery = await prisma.delivery.update({
+  const updated = await prisma.delivery.update({
     where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
     data: {
       status: "DELIVERED",
@@ -108,7 +128,7 @@ async function markDelivered(formData: FormData) {
     actorId: session.user.id,
     action: "delivery.delivered",
     entityType: "Delivery",
-    entityId: delivery.id,
+    entityId: updated.id,
   });
 
   revalidatePath("/logistics/deliveries");
@@ -125,8 +145,16 @@ async function closeDelivery(formData: FormData) {
   const deliveryId = String(formData.get("deliveryId") ?? "");
   if (!deliveryId) throw new Error("VALIDATION_ERROR");
 
-  const delivery = await prisma.delivery.update({
+  const delivery = await prisma.delivery.findFirst({
     where: { id: deliveryId, tenantId: session.user.tenantId },
+  });
+
+  if (!delivery || delivery.status !== "DELIVERED") {
+    throw new Error("INVALID_STATUS");
+  }
+
+  const updated = await prisma.delivery.update({
+    where: { id: deliveryId },
     data: { status: "CLOSED", closedAt: new Date() },
   });
 
@@ -135,7 +163,7 @@ async function closeDelivery(formData: FormData) {
     actorId: session.user.id,
     action: "delivery.closed",
     entityType: "Delivery",
-    entityId: delivery.id,
+    entityId: updated.id,
   });
 
   revalidatePath("/logistics/deliveries");
