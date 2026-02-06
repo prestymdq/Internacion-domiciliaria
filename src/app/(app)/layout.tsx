@@ -28,7 +28,7 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl gap-6 px-4 py-6">
+      <div className="flex min-h-screen w-full gap-6 px-4 py-6">
         <aside className="hidden w-72 flex-col gap-6 rounded-3xl border border-white/70 bg-white/70 p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)] backdrop-blur md:flex">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
