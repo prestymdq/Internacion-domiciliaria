@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { uploadEvidenceObject } from "@/lib/storage";
 import { logAudit } from "@/lib/audit";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,14 @@ export async function POST(
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  const access = await getTenantModuleAccess(
+    session.user.tenantId,
+    "AUTHORIZATIONS",
+  );
+  if (!access.allowed) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
   const requirement = await prisma.authorizationRequirement.findFirst({

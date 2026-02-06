@@ -9,7 +9,7 @@ import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { getTenantModuleAccess } from "@/lib/tenant-access";
+import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 
 const kitSchema = z.object({ name: z.string().min(1) });
@@ -36,6 +36,7 @@ async function createKitTemplate(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
   const parsed = kitSchema.safeParse({
@@ -70,6 +71,7 @@ async function addKitItem(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
   const parsed = kitItemSchema.safeParse({
@@ -107,6 +109,7 @@ async function createOrder(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,
@@ -147,6 +150,7 @@ async function addOrderItem(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,
@@ -188,6 +192,7 @@ async function generatePickList(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,

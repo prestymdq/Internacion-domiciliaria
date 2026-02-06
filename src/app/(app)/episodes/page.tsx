@@ -9,7 +9,7 @@ import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { getTenantModuleAccess } from "@/lib/tenant-access";
+import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 
 const episodeSchema = z.object({
@@ -25,6 +25,7 @@ async function createEpisode(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
 
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
@@ -70,6 +71,7 @@ async function dischargeEpisode(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,

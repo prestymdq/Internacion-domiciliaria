@@ -9,7 +9,7 @@ import { nextDeliveryNumber } from "@/lib/sequence";
 import { IncidentCause, Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getTenantModuleAccess } from "@/lib/tenant-access";
+import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 
 const incidentSchema = z.object({
@@ -25,6 +25,7 @@ async function freezePickList(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
   const pickListId = String(formData.get("pickListId") ?? "");
@@ -69,6 +70,7 @@ async function packPickList(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
   const pickListId = String(formData.get("pickListId") ?? "");
@@ -96,6 +98,7 @@ async function reportIncident(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.DEPOSITO,
@@ -173,6 +176,7 @@ async function createDelivery(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
   const pickListId = String(formData.get("pickListId") ?? "");

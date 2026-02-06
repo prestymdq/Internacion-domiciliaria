@@ -9,7 +9,7 @@ import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { getTenantModuleAccess } from "@/lib/tenant-access";
+import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 
 const transitSchema = z.object({
@@ -31,6 +31,7 @@ async function markInTransit(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
   const parsed = transitSchema.safeParse({
@@ -79,6 +80,7 @@ async function markDelivered(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
   const parsed = deliveredSchema.safeParse({
@@ -142,6 +144,7 @@ async function closeDelivery(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
   const deliveryId = String(formData.get("deliveryId") ?? "");

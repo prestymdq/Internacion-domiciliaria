@@ -1,6 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+import AccessDenied from "@/components/app/access-denied";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -15,6 +17,11 @@ export default async function DashboardPage() {
         </p>
       </div>
     );
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "CLINIC");
+  if (!access.allowed) {
+    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
   }
 
   const [patients, episodes, deliveries, incidents, visitsScheduled, visitsCompleted] = await Promise.all([

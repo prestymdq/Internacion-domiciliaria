@@ -72,3 +72,13 @@ export async function getTenantModuleAccess(
 
   return { allowed: true, reason: null };
 }
+
+export async function assertTenantModuleAccess(
+  tenantId: string,
+  moduleKey: ModuleKey,
+) {
+  const access = await getTenantModuleAccess(tenantId, moduleKey);
+  if (!access.allowed) {
+    throw new Error(access.reason ?? "FORBIDDEN");
+  }
+}

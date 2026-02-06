@@ -1,0 +1,79 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const session = await getServerSession(authOptions);
+  const tenantId = session?.user?.tenantId;
+  if (!tenantId) {
+    return new Response("UNAUTHORIZED", { status: 401 });
+  }
+
+  const access = await getTenantModuleAccess(tenantId, "BILLING");
+  if (!access.allowed) {
+    return new Response("FORBIDDEN", { status: 403 });
+  }
+
+  const deliveries = await prisma.delivery.findMany({
+    where: { tenantId },
+    include: {
+      approvedOrder: { include: { patient: true } },
+      pickList: { include: { items: true } },
+      evidence: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const rows = deliveries.map((delivery) => {
+    const authorized = delivery.pickList.items.reduce(
+      (sum, item) => sum + item.requestedQty,
+      0,
+    );
+    const realized = delivery.pickList.items.reduce(
+      (sum, item) => sum + item.pickedQty,
+      0,
+    );
+    const evidenced = delivery.evidence.length > 0;
+
+    return [
+      delivery.deliveryNumber,
+      `${delivery.approvedOrder.patient.lastName}, ${delivery.approvedOrder.patient.firstName}`,
+      delivery.status,
+      delivery.deliveredAt ? delivery.deliveredAt.toISOString() : "",
+      authorized,
+      realized,
+      evidenced ? "SI" : "NO",
+      delivery.evidence.length,
+    ];
+  });
+
+  const header = [
+    "Entrega",
+    "Paciente",
+    "Estado",
+    "FechaEntrega",
+    "Autorizado",
+    "Realizado",
+    "Evidenciado",
+    "Evidencias",
+  ];
+
+  const csv = [header, ...rows]
+    .map((row) =>
+      row
+        .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
+        .join(","),
+    )
+    .join("\n");
+
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": "attachment; filename=preliquidacion.csv",
+    },
+  });
+}

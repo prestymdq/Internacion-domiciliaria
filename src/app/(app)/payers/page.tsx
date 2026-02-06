@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
-import { getTenantModuleAccess } from "@/lib/tenant-access";
+import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ async function createPayer(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
+  await assertTenantModuleAccess(session.user.tenantId, "PAYERS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,
@@ -66,6 +67,7 @@ async function createPlan(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
+  await assertTenantModuleAccess(session.user.tenantId, "PAYERS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,
@@ -101,6 +103,7 @@ async function createRequirement(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
+  await assertTenantModuleAccess(session.user.tenantId, "PAYERS");
   assertRole(session.user.role, [
     Role.ADMIN_TENANT,
     Role.COORDINACION,

@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getTenantModuleAccess } from "@/lib/tenant-access";
 import PDFDocument from "pdfkit";
 
 export const runtime = "nodejs";
@@ -13,6 +14,11 @@ export async function GET(
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) {
     return new Response("UNAUTHORIZED", { status: 401 });
+  }
+
+  const access = await getTenantModuleAccess(session.user.tenantId, "LOGISTICS");
+  if (!access.allowed) {
+    return new Response("FORBIDDEN", { status: 403 });
   }
 
   const delivery = await prisma.delivery.findFirst({

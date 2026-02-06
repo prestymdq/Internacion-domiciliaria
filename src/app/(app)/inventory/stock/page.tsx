@@ -8,7 +8,7 @@ import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getTenantModuleAccess } from "@/lib/tenant-access";
+import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 
 const movementSchema = z.object({
@@ -26,6 +26,7 @@ async function createMovement(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
+  await assertTenantModuleAccess(session.user.tenantId, "INVENTORY");
   assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
   const parsed = movementSchema.safeParse({
