@@ -154,6 +154,48 @@ export default async function InvoicesPage() {
         </p>
       </div>
 
+      <div className="rounded-lg border p-4">
+        <div className="text-sm font-medium">Exportar por obra social</div>
+        <div className="mt-2 flex flex-wrap gap-3">
+          <form action="/api/billing/invoices/export" method="get">
+            <select
+              name="payerId"
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              required
+            >
+              <option value="">Obra social...</option>
+              {payers.map((payer) => (
+                <option key={payer.id} value={payer.id}>
+                  {payer.name}
+                </option>
+              ))}
+            </select>
+            <input type="hidden" name="format" value="csv" />
+            <Button size="sm" type="submit" className="ml-2">
+              CSV
+            </Button>
+          </form>
+          <form action="/api/billing/invoices/export" method="get">
+            <select
+              name="payerId"
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              required
+            >
+              <option value="">Obra social...</option>
+              {payers.map((payer) => (
+                <option key={payer.id} value={payer.id}>
+                  {payer.name}
+                </option>
+              ))}
+            </select>
+            <input type="hidden" name="format" value="pdf" />
+            <Button size="sm" type="submit" className="ml-2" variant="outline">
+              PDF
+            </Button>
+          </form>
+        </div>
+      </div>
+
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Crear factura</h2>
         <div className="space-y-4">

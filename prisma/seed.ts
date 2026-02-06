@@ -49,6 +49,33 @@ async function main() {
     },
   });
 
+  await prisma.billingTemplate.upsert({
+    where: {
+      tenantId_name: {
+        tenantId: tenant.id,
+        name: "IOMA",
+      },
+    },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: "IOMA",
+      config: {
+        columns: [
+          "invoiceNumber",
+          "payerName",
+          "patientName",
+          "issuedAt",
+          "totalAmount",
+          "itemName",
+          "itemQty",
+          "itemUnitPrice",
+          "itemSubtotal",
+        ],
+      },
+    },
+  });
+
   const tenantAdminEmail =
     process.env.DEFAULT_TENANT_ADMIN_EMAIL ?? "admin@demo.local";
   const tenantAdminPassword =

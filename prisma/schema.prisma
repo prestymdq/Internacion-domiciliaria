@@ -139,6 +139,7 @@ model Tenant {
   invoices     Invoice[]
   debitNotes   DebitNote[]
   payments     Payment[]
+  billingTemplates BillingTemplate[]
 
   @@index([status])
 }
@@ -493,6 +494,7 @@ model Payer {
   requirements PayerRequirement[]
   authorizations Authorization[]
   invoices Invoice[]
+  billingTemplates BillingTemplate[]
 
   @@unique([tenantId, name])
 }
@@ -683,6 +685,22 @@ model Payment {
   createdAt   DateTime @default(now())
 
   @@index([tenantId, invoiceId])
+}
+
+model BillingTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  payerId   String?
+  payer     Payer?   @relation(fields: [payerId], references: [id])
+  name      String
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, payerId])
+  @@unique([tenantId, name])
 }
 
 model Visit {
