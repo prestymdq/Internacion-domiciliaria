@@ -2,14 +2,17 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const patientSchema = z.object({
   firstName: z.string().min(1),
@@ -25,39 +28,41 @@ async function createPatient(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const parsed = patientSchema.safeParse({
-    firstName: formData.get("firstName"),
-    lastName: formData.get("lastName"),
-    dni: formData.get("dni"),
-    phone: formData.get("phone"),
-    address: formData.get("address"),
-  });
+    const parsed = patientSchema.safeParse({
+      firstName: formData.get("firstName"),
+      lastName: formData.get("lastName"),
+      dni: formData.get("dni"),
+      phone: formData.get("phone"),
+      address: formData.get("address"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const patient = await prisma.patient.create({
-    data: {
+    const patient = await db.patient.create({
+      data: {
+        tenantId: session.user.tenantId,
+        ...parsed.data,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      ...parsed.data,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "patient.create",
-    entityType: "Patient",
-    entityId: patient.id,
-    meta: { dni: patient.dni },
+      actorId: session.user.id,
+      action: "patient.create",
+      entityType: "Patient",
+      entityId: patient.id,
+      meta: { dni: patient.dni },
+    });
   });
 
   revalidatePath("/patients");
@@ -71,17 +76,18 @@ export default async function PatientsPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "CLINIC");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "CLINIC");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const patients = await prisma.patient.findMany({
-    where: { tenantId },
-    orderBy: { createdAt: "desc" },
-  });
+    const patients = await db.patient.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Pacientes</h1>
@@ -136,5 +142,6 @@ export default async function PatientsPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }

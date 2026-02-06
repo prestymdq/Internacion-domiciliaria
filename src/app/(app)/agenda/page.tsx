@@ -2,15 +2,18 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role, VisitStatus } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const visitSchema = z.object({
   episodeId: z.string().min(1),
@@ -36,50 +39,52 @@ async function createVisit(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const parsed = visitSchema.safeParse({
-    episodeId: formData.get("episodeId"),
-    assignedUserId: formData.get("assignedUserId"),
-    scheduledAt: formData.get("scheduledAt"),
-    notes: formData.get("notes"),
-  });
+    const parsed = visitSchema.safeParse({
+      episodeId: formData.get("episodeId"),
+      assignedUserId: formData.get("assignedUserId"),
+      scheduledAt: formData.get("scheduledAt"),
+      notes: formData.get("notes"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const episode = await prisma.episode.findFirst({
-    where: { id: parsed.data.episodeId, tenantId: session.user.tenantId },
-  });
+    const episode = await db.episode.findFirst({
+      where: { id: parsed.data.episodeId, tenantId: session.user.tenantId },
+    });
 
-  if (!episode) {
-    throw new Error("EPISODE_NOT_FOUND");
-  }
+    if (!episode) {
+      throw new Error("EPISODE_NOT_FOUND");
+    }
 
-  const visit = await prisma.visit.create({
-    data: {
+    const visit = await db.visit.create({
+      data: {
+        tenantId: session.user.tenantId,
+        patientId: episode.patientId,
+        episodeId: episode.id,
+        assignedUserId: parsed.data.assignedUserId || null,
+        createdById: session.user.id,
+        scheduledAt: new Date(parsed.data.scheduledAt),
+        notes: parsed.data.notes ?? null,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      patientId: episode.patientId,
-      episodeId: episode.id,
-      assignedUserId: parsed.data.assignedUserId || null,
-      createdById: session.user.id,
-      scheduledAt: new Date(parsed.data.scheduledAt),
-      notes: parsed.data.notes ?? null,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "visit.create",
-    entityType: "Visit",
-    entityId: visit.id,
+      actorId: session.user.id,
+      action: "visit.create",
+      entityType: "Visit",
+      entityId: visit.id,
+    });
   });
 
   revalidatePath("/agenda");
@@ -91,35 +96,37 @@ async function checkInVisit(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const visitId = String(formData.get("visitId") ?? "");
-  if (!visitId) throw new Error("VALIDATION_ERROR");
+    const visitId = String(formData.get("visitId") ?? "");
+    if (!visitId) throw new Error("VALIDATION_ERROR");
 
-  const visit = await prisma.visit.findFirst({
-    where: { id: visitId, tenantId: session.user.tenantId },
-  });
+    const visit = await db.visit.findFirst({
+      where: { id: visitId, tenantId: session.user.tenantId },
+    });
 
-  if (!visit || visit.status !== "SCHEDULED") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!visit || visit.status !== "SCHEDULED") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  const updated = await prisma.visit.update({
-    where: { id: visit.id },
-    data: { status: VisitStatus.IN_PROGRESS, checkInAt: new Date() },
-  });
+    const updated = await db.visit.update({
+      where: { id: visit.id },
+      data: { status: VisitStatus.IN_PROGRESS, checkInAt: new Date() },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "visit.checkin",
-    entityType: "Visit",
-    entityId: updated.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "visit.checkin",
+      entityType: "Visit",
+      entityId: updated.id,
+    });
   });
 
   revalidatePath("/agenda");
@@ -131,35 +138,37 @@ async function completeVisit(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const visitId = String(formData.get("visitId") ?? "");
-  if (!visitId) throw new Error("VALIDATION_ERROR");
+    const visitId = String(formData.get("visitId") ?? "");
+    if (!visitId) throw new Error("VALIDATION_ERROR");
 
-  const visit = await prisma.visit.findFirst({
-    where: { id: visitId, tenantId: session.user.tenantId },
-  });
+    const visit = await db.visit.findFirst({
+      where: { id: visitId, tenantId: session.user.tenantId },
+    });
 
-  if (!visit || visit.status !== "IN_PROGRESS") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!visit || visit.status !== "IN_PROGRESS") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  const updated = await prisma.visit.update({
-    where: { id: visit.id },
-    data: { status: VisitStatus.COMPLETED, checkOutAt: new Date() },
-  });
+    const updated = await db.visit.update({
+      where: { id: visit.id },
+      data: { status: VisitStatus.COMPLETED, checkOutAt: new Date() },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "visit.complete",
-    entityType: "Visit",
-    entityId: updated.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "visit.complete",
+      entityType: "Visit",
+      entityId: updated.id,
+    });
   });
 
   revalidatePath("/agenda");
@@ -171,35 +180,37 @@ async function cancelVisit(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const visitId = String(formData.get("visitId") ?? "");
-  if (!visitId) throw new Error("VALIDATION_ERROR");
+    const visitId = String(formData.get("visitId") ?? "");
+    if (!visitId) throw new Error("VALIDATION_ERROR");
 
-  const visit = await prisma.visit.findFirst({
-    where: { id: visitId, tenantId: session.user.tenantId },
-  });
+    const visit = await db.visit.findFirst({
+      where: { id: visitId, tenantId: session.user.tenantId },
+    });
 
-  if (!visit || visit.status === "COMPLETED") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!visit || visit.status === "COMPLETED") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  const updated = await prisma.visit.update({
-    where: { id: visit.id },
-    data: { status: VisitStatus.CANCELLED },
-  });
+    const updated = await db.visit.update({
+      where: { id: visit.id },
+      data: { status: VisitStatus.CANCELLED },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "visit.cancel",
-    entityType: "Visit",
-    entityId: updated.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "visit.cancel",
+      entityType: "Visit",
+      entityId: updated.id,
+    });
   });
 
   revalidatePath("/agenda");
@@ -211,47 +222,49 @@ async function addClinicalNote(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const parsed = noteSchema.safeParse({
-    visitId: formData.get("visitId"),
-    content: formData.get("content"),
-  });
+    const parsed = noteSchema.safeParse({
+      visitId: formData.get("visitId"),
+      content: formData.get("content"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const visit = await prisma.visit.findFirst({
-    where: { id: parsed.data.visitId, tenantId: session.user.tenantId },
-  });
+    const visit = await db.visit.findFirst({
+      where: { id: parsed.data.visitId, tenantId: session.user.tenantId },
+    });
 
-  if (!visit) {
-    throw new Error("VISIT_NOT_FOUND");
-  }
+    if (!visit) {
+      throw new Error("VISIT_NOT_FOUND");
+    }
 
-  const note = await prisma.clinicalNote.create({
-    data: {
+    const note = await db.clinicalNote.create({
+      data: {
+        tenantId: session.user.tenantId,
+        patientId: visit.patientId,
+        episodeId: visit.episodeId,
+        visitId: visit.id,
+        authorId: session.user.id,
+        content: parsed.data.content,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      patientId: visit.patientId,
-      episodeId: visit.episodeId,
-      visitId: visit.id,
-      authorId: session.user.id,
-      content: parsed.data.content,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "clinicalNote.create",
-    entityType: "ClinicalNote",
-    entityId: note.id,
+      actorId: session.user.id,
+      action: "clinicalNote.create",
+      entityType: "ClinicalNote",
+      entityId: note.id,
+    });
   });
 
   revalidatePath("/agenda");
@@ -263,45 +276,47 @@ async function addVisitItem(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const parsed = itemSchema.safeParse({
-    visitId: formData.get("visitId"),
-    productId: formData.get("productId"),
-    quantity: formData.get("quantity"),
-  });
+    const parsed = itemSchema.safeParse({
+      visitId: formData.get("visitId"),
+      productId: formData.get("productId"),
+      quantity: formData.get("quantity"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const visit = await prisma.visit.findFirst({
-    where: { id: parsed.data.visitId, tenantId: session.user.tenantId },
-  });
+    const visit = await db.visit.findFirst({
+      where: { id: parsed.data.visitId, tenantId: session.user.tenantId },
+    });
 
-  if (!visit) {
-    throw new Error("VISIT_NOT_FOUND");
-  }
+    if (!visit) {
+      throw new Error("VISIT_NOT_FOUND");
+    }
 
-  const item = await prisma.visitItem.create({
-    data: {
-      visitId: visit.id,
-      productId: parsed.data.productId,
-      quantity: Number(parsed.data.quantity),
-    },
-  });
+    const item = await db.visitItem.create({
+      data: {
+        visitId: visit.id,
+        productId: parsed.data.productId,
+        quantity: Number(parsed.data.quantity),
+      },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "visit.item.add",
-    entityType: "VisitItem",
-    entityId: item.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "visit.item.add",
+      entityType: "VisitItem",
+      entityId: item.id,
+    });
   });
 
   revalidatePath("/agenda");

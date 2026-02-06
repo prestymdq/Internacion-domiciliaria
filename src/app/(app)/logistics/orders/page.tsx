@@ -2,15 +2,18 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const kitSchema = z.object({ name: z.string().min(1) });
 const kitItemSchema = z.object({
@@ -36,30 +39,32 @@ async function createKitTemplate(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const parsed = kitSchema.safeParse({
-    name: formData.get("name"),
-  });
+    const parsed = kitSchema.safeParse({
+      name: formData.get("name"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const template = await prisma.kitTemplate.create({
-    data: {
+    const template = await db.kitTemplate.create({
+      data: {
+        tenantId: session.user.tenantId,
+        name: parsed.data.name,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      name: parsed.data.name,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "kitTemplate.create",
-    entityType: "KitTemplate",
-    entityId: template.id,
+      actorId: session.user.id,
+      action: "kitTemplate.create",
+      entityType: "KitTemplate",
+      entityId: template.id,
+    });
   });
 
   revalidatePath("/logistics/orders");
@@ -71,33 +76,35 @@ async function addKitItem(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const parsed = kitItemSchema.safeParse({
-    kitTemplateId: formData.get("kitTemplateId"),
-    productId: formData.get("productId"),
-    quantity: formData.get("quantity"),
-  });
+    const parsed = kitItemSchema.safeParse({
+      kitTemplateId: formData.get("kitTemplateId"),
+      productId: formData.get("productId"),
+      quantity: formData.get("quantity"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const item = await prisma.kitTemplateItem.create({
-    data: {
-      kitTemplateId: parsed.data.kitTemplateId,
-      productId: parsed.data.productId,
-      quantity: Number(parsed.data.quantity),
-    },
-  });
+    const item = await db.kitTemplateItem.create({
+      data: {
+        kitTemplateId: parsed.data.kitTemplateId,
+        productId: parsed.data.productId,
+        quantity: Number(parsed.data.quantity),
+      },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "kitTemplate.item.add",
-    entityType: "KitTemplateItem",
-    entityId: item.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "kitTemplate.item.add",
+      entityType: "KitTemplateItem",
+      entityId: item.id,
+    });
   });
 
   revalidatePath("/logistics/orders");
@@ -109,36 +116,38 @@ async function createOrder(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.DEPOSITO,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.DEPOSITO,
+    ]);
 
-  const parsed = orderSchema.safeParse({
-    patientId: formData.get("patientId"),
-    notes: formData.get("notes"),
-  });
+    const parsed = orderSchema.safeParse({
+      patientId: formData.get("patientId"),
+      notes: formData.get("notes"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const order = await prisma.approvedOrder.create({
-    data: {
+    const order = await db.approvedOrder.create({
+      data: {
+        tenantId: session.user.tenantId,
+        patientId: parsed.data.patientId,
+        notes: parsed.data.notes ?? null,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      patientId: parsed.data.patientId,
-      notes: parsed.data.notes ?? null,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "approvedOrder.create",
-    entityType: "ApprovedOrder",
-    entityId: order.id,
+      actorId: session.user.id,
+      action: "approvedOrder.create",
+      entityType: "ApprovedOrder",
+      entityId: order.id,
+    });
   });
 
   revalidatePath("/logistics/orders");
@@ -150,37 +159,39 @@ async function addOrderItem(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.DEPOSITO,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.DEPOSITO,
+    ]);
 
-  const parsed = orderItemSchema.safeParse({
-    approvedOrderId: formData.get("approvedOrderId"),
-    productId: formData.get("productId"),
-    quantity: formData.get("quantity"),
-  });
+    const parsed = orderItemSchema.safeParse({
+      approvedOrderId: formData.get("approvedOrderId"),
+      productId: formData.get("productId"),
+      quantity: formData.get("quantity"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const item = await prisma.approvedOrderItem.create({
-    data: {
-      approvedOrderId: parsed.data.approvedOrderId,
-      productId: parsed.data.productId,
-      quantity: Number(parsed.data.quantity),
-    },
-  });
+    const item = await db.approvedOrderItem.create({
+      data: {
+        approvedOrderId: parsed.data.approvedOrderId,
+        productId: parsed.data.productId,
+        quantity: Number(parsed.data.quantity),
+      },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "approvedOrder.item.add",
-    entityType: "ApprovedOrderItem",
-    entityId: item.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "approvedOrder.item.add",
+      entityType: "ApprovedOrderItem",
+      entityId: item.id,
+    });
   });
 
   revalidatePath("/logistics/orders");
@@ -192,56 +203,57 @@ async function generatePickList(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.DEPOSITO,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.DEPOSITO,
+    ]);
 
-  const approvedOrderId = String(formData.get("approvedOrderId") ?? "");
-  if (!approvedOrderId) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    const approvedOrderId = String(formData.get("approvedOrderId") ?? "");
+    if (!approvedOrderId) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const order = await prisma.approvedOrder.findFirst({
-    where: { id: approvedOrderId, tenantId: session.user.tenantId },
-    include: { items: true },
-  });
+    const order = await db.approvedOrder.findFirst({
+      where: { id: approvedOrderId, tenantId: session.user.tenantId },
+      include: { items: true },
+    });
 
-  if (!order || order.items.length === 0) {
-    throw new Error("ORDER_EMPTY");
-  }
+    if (!order || order.items.length === 0) {
+      throw new Error("ORDER_EMPTY");
+    }
 
-  const existing = await prisma.pickList.findFirst({
-    where: { approvedOrderId: order.id, tenantId: session.user.tenantId },
-  });
+    const existing = await db.pickList.findFirst({
+      where: { approvedOrderId: order.id, tenantId: session.user.tenantId },
+    });
 
-  if (existing) {
-    revalidatePath("/logistics/orders");
-    return;
-  }
+    if (existing) {
+      return;
+    }
 
-  const pickList = await prisma.pickList.create({
-    data: {
-      tenantId: session.user.tenantId,
-      approvedOrderId: order.id,
-      items: {
-        create: order.items.map((item) => ({
-          productId: item.productId,
-          requestedQty: item.quantity,
-          pickedQty: item.quantity,
-        })),
+    const pickList = await db.pickList.create({
+      data: {
+        tenantId: session.user.tenantId,
+        approvedOrderId: order.id,
+        items: {
+          create: order.items.map((item) => ({
+            productId: item.productId,
+            requestedQty: item.quantity,
+            pickedQty: item.quantity,
+          })),
+        },
       },
-    },
-  });
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "picklist.create",
-    entityType: "PickList",
-    entityId: pickList.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "picklist.create",
+      entityType: "PickList",
+      entityId: pickList.id,
+    });
   });
 
   revalidatePath("/logistics/orders");
@@ -255,23 +267,26 @@ export default async function OrdersPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "LOGISTICS");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "LOGISTICS");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [products, patients, templates, orders] = await Promise.all([
-    prisma.product.findMany({ where: { tenantId }, orderBy: { name: "asc" } }),
-    prisma.patient.findMany({
+    const products = await db.product.findMany({
+      where: { tenantId },
+      orderBy: { name: "asc" },
+    });
+    const patients = await db.patient.findMany({
       where: { tenantId },
       orderBy: { lastName: "asc" },
-    }),
-    prisma.kitTemplate.findMany({
+    });
+    const templates = await db.kitTemplate.findMany({
       where: { tenantId },
       include: { items: { include: { product: true } } },
       orderBy: { createdAt: "desc" },
-    }),
-    prisma.approvedOrder.findMany({
+    });
+    const orders = await db.approvedOrder.findMany({
       where: { tenantId },
       include: {
         patient: true,
@@ -279,10 +294,9 @@ export default async function OrdersPage() {
         pickLists: true,
       },
       orderBy: { createdAt: "desc" },
-    }),
-  ]);
+    });
 
-  return (
+    return (
     <div className="space-y-10">
       <div className="space-y-3">
         <h1 className="text-2xl font-semibold">Órdenes y kits</h1>
@@ -445,5 +459,6 @@ export default async function OrdersPage() {
         </div>
       </section>
     </div>
-  );
+    );
+  });
 }

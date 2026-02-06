@@ -2,15 +2,18 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { nextDeliveryNumber } from "@/lib/sequence";
 import { IncidentCause, Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const incidentSchema = z.object({
   pickListItemId: z.string().min(1),
@@ -25,40 +28,40 @@ async function freezePickList(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const pickListId = String(formData.get("pickListId") ?? "");
-  if (!pickListId) throw new Error("VALIDATION_ERROR");
+    const pickListId = String(formData.get("pickListId") ?? "");
+    if (!pickListId) throw new Error("VALIDATION_ERROR");
 
-  const pickList = await prisma.pickList.findFirst({
-    where: { id: pickListId, tenantId: session.user.tenantId },
-    include: { items: true },
-  });
+    const pickList = await db.pickList.findFirst({
+      where: { id: pickListId, tenantId: session.user.tenantId },
+      include: { items: true },
+    });
 
-  if (!pickList || pickList.status !== "DRAFT") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!pickList || pickList.status !== "DRAFT") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.pickList.update({
+    await db.pickList.update({
       where: { id: pickList.id },
       data: { status: "FROZEN", frozenAt: new Date() },
     });
     for (const item of pickList.items) {
-      await tx.pickListItem.update({
+      await db.pickListItem.update({
         where: { id: item.id },
         data: { pickedQty: item.requestedQty },
       });
     }
-  });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "picklist.freeze",
-    entityType: "PickList",
-    entityId: pickList.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "picklist.freeze",
+      entityType: "PickList",
+      entityId: pickList.id,
+    });
   });
 
   revalidatePath("/logistics/picklists");
@@ -70,23 +73,25 @@ async function packPickList(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const pickListId = String(formData.get("pickListId") ?? "");
-  if (!pickListId) throw new Error("VALIDATION_ERROR");
+    const pickListId = String(formData.get("pickListId") ?? "");
+    if (!pickListId) throw new Error("VALIDATION_ERROR");
 
-  const pickList = await prisma.pickList.update({
-    where: { id: pickListId, tenantId: session.user.tenantId },
-    data: { status: "PACKED", packedAt: new Date() },
-  });
+    const pickList = await db.pickList.update({
+      where: { id: pickListId, tenantId: session.user.tenantId },
+      data: { status: "PACKED", packedAt: new Date() },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "picklist.pack",
-    entityType: "PickList",
-    entityId: pickList.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "picklist.pack",
+      entityType: "PickList",
+      entityId: pickList.id,
+    });
   });
 
   revalidatePath("/logistics/picklists");
@@ -98,73 +103,75 @@ async function reportIncident(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.DEPOSITO,
-    Role.COORDINACION,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.DEPOSITO,
+      Role.COORDINACION,
+    ]);
 
-  const parsed = incidentSchema.safeParse({
-    pickListItemId: formData.get("pickListItemId"),
-    newQty: formData.get("newQty"),
-    cause: formData.get("cause"),
-    description: formData.get("description"),
-  });
+    const parsed = incidentSchema.safeParse({
+      pickListItemId: formData.get("pickListItemId"),
+      newQty: formData.get("newQty"),
+      cause: formData.get("cause"),
+      description: formData.get("description"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const item = await prisma.pickListItem.findFirst({
-    where: {
-      id: parsed.data.pickListItemId,
-      pickList: { tenantId: session.user.tenantId },
-    },
-    include: { pickList: true },
-  });
+    const item = await db.pickListItem.findFirst({
+      where: {
+        id: parsed.data.pickListItemId,
+        pickList: { tenantId: session.user.tenantId },
+      },
+      include: { pickList: true },
+    });
 
-  if (!item) {
-    throw new Error("NOT_FOUND");
-  }
+    if (!item) {
+      throw new Error("NOT_FOUND");
+    }
 
-  if (item.pickList.status !== "FROZEN") {
-    throw new Error("PICKLIST_NOT_FROZEN");
-  }
+    if (item.pickList.status !== "FROZEN") {
+      throw new Error("PICKLIST_NOT_FROZEN");
+    }
 
-  const newQty = Number(parsed.data.newQty);
-  if (newQty >= item.requestedQty) {
-    throw new Error("INCIDENT_REQUIRED_ONLY_FOR_REDUCTION");
-  }
+    const newQty = Number(parsed.data.newQty);
+    if (newQty >= item.requestedQty) {
+      throw new Error("INCIDENT_REQUIRED_ONLY_FOR_REDUCTION");
+    }
 
-  const incident = await prisma.incident.create({
-    data: {
+    const incident = await db.incident.create({
+      data: {
+        tenantId: session.user.tenantId,
+        cause: parsed.data.cause,
+        description: parsed.data.description ?? null,
+        createdById: session.user.id,
+      },
+    });
+
+    await db.pickListItem.update({
+      where: { id: item.id },
+      data: {
+        pickedQty: newQty,
+        incidentId: incident.id,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      cause: parsed.data.cause,
-      description: parsed.data.description ?? null,
-      createdById: session.user.id,
-    },
-  });
-
-  await prisma.pickListItem.update({
-    where: { id: item.id },
-    data: {
-      pickedQty: newQty,
-      incidentId: incident.id,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "picklist.item.reduce",
-    entityType: "PickListItem",
-    entityId: item.id,
-    meta: {
-      from: item.requestedQty,
-      to: newQty,
-      cause: parsed.data.cause,
-    },
+      actorId: session.user.id,
+      action: "picklist.item.reduce",
+      entityType: "PickListItem",
+      entityId: item.id,
+      meta: {
+        from: item.requestedQty,
+        to: newQty,
+        cause: parsed.data.cause,
+      },
+    });
   });
 
   revalidatePath("/logistics/picklists");
@@ -176,45 +183,49 @@ async function createDelivery(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
-  const pickListId = String(formData.get("pickListId") ?? "");
-  if (!pickListId) throw new Error("VALIDATION_ERROR");
+    const pickListId = String(formData.get("pickListId") ?? "");
+    if (!pickListId) throw new Error("VALIDATION_ERROR");
 
-  const pickList = await prisma.pickList.findFirst({
-    where: { id: pickListId, tenantId: session.user.tenantId },
-    include: { approvedOrder: true, deliveries: true },
-  });
+    const pickList = await db.pickList.findFirst({
+      where: { id: pickListId, tenantId: session.user.tenantId },
+      include: { approvedOrder: true, deliveries: true },
+    });
 
-  if (!pickList || pickList.status !== "PACKED") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!pickList || pickList.status !== "PACKED") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  if (pickList.deliveries.length > 0) {
-    revalidatePath("/logistics/picklists");
-    return;
-  }
+    if (pickList.deliveries.length > 0) {
+      return;
+    }
 
-  const deliveryNumber = await nextDeliveryNumber(session.user.tenantId);
+    const deliveryNumber = await nextDeliveryNumber(
+      db,
+      session.user.tenantId,
+    );
 
-  const delivery = await prisma.delivery.create({
-    data: {
+    const delivery = await db.delivery.create({
+      data: {
+        tenantId: session.user.tenantId,
+        pickListId: pickList.id,
+        approvedOrderId: pickList.approvedOrderId,
+        status: "PACKED",
+        deliveryNumber,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      pickListId: pickList.id,
-      approvedOrderId: pickList.approvedOrderId,
-      status: "PACKED",
-      deliveryNumber,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "delivery.create",
-    entityType: "Delivery",
-    entityId: delivery.id,
-    meta: { deliveryNumber },
+      actorId: session.user.id,
+      action: "delivery.create",
+      entityType: "Delivery",
+      entityId: delivery.id,
+      meta: { deliveryNumber },
+    });
   });
 
   revalidatePath("/logistics/picklists");
@@ -228,22 +239,23 @@ export default async function PickListsPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "LOGISTICS");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "LOGISTICS");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const pickLists = await prisma.pickList.findMany({
-    where: { tenantId },
-    include: {
-      approvedOrder: { include: { patient: true } },
-      items: { include: { product: true, incident: true } },
-      deliveries: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    const pickLists = await db.pickList.findMany({
+      where: { tenantId },
+      include: {
+        approvedOrder: { include: { patient: true } },
+        items: { include: { product: true, incident: true } },
+        deliveries: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Picklists</h1>
@@ -382,5 +394,6 @@ export default async function PickListsPage() {
         ) : null}
       </div>
     </div>
-  );
+    );
+  });
 }

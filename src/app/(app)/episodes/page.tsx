@@ -2,15 +2,18 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const episodeSchema = z.object({
   patientId: z.string().min(1),
@@ -25,41 +28,43 @@ async function createEpisode(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
 
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const parsed = episodeSchema.safeParse({
-    patientId: formData.get("patientId"),
-    startDate: formData.get("startDate"),
-    diagnosis: formData.get("diagnosis"),
-    notes: formData.get("notes"),
-  });
+    const parsed = episodeSchema.safeParse({
+      patientId: formData.get("patientId"),
+      startDate: formData.get("startDate"),
+      diagnosis: formData.get("diagnosis"),
+      notes: formData.get("notes"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const episode = await prisma.episode.create({
-    data: {
+    const episode = await db.episode.create({
+      data: {
+        tenantId: session.user.tenantId,
+        patientId: parsed.data.patientId,
+        startDate: new Date(parsed.data.startDate),
+        diagnosis: parsed.data.diagnosis ?? null,
+        notes: parsed.data.notes ?? null,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      patientId: parsed.data.patientId,
-      startDate: new Date(parsed.data.startDate),
-      diagnosis: parsed.data.diagnosis ?? null,
-      notes: parsed.data.notes ?? null,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "episode.create",
-    entityType: "Episode",
-    entityId: episode.id,
+      actorId: session.user.id,
+      action: "episode.create",
+      entityType: "Episode",
+      entityId: episode.id,
+    });
   });
 
   revalidatePath("/episodes");
@@ -71,32 +76,34 @@ async function dischargeEpisode(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "CLINIC");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.PROFESIONAL,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ]);
 
-  const episodeId = String(formData.get("episodeId") ?? "");
-  if (!episodeId) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    const episodeId = String(formData.get("episodeId") ?? "");
+    if (!episodeId) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const episode = await prisma.episode.update({
-    where: { id: episodeId, tenantId: session.user.tenantId },
-    data: {
-      status: "DISCHARGED",
-      endDate: new Date(),
-    },
-  });
+    const episode = await db.episode.update({
+      where: { id: episodeId, tenantId: session.user.tenantId },
+      data: {
+        status: "DISCHARGED",
+        endDate: new Date(),
+      },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "episode.discharge",
-    entityType: "Episode",
-    entityId: episode.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "episode.discharge",
+      entityType: "Episode",
+      entityId: episode.id,
+    });
   });
 
   revalidatePath("/episodes");
@@ -109,24 +116,23 @@ export default async function EpisodesPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "CLINIC");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "CLINIC");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [patients, episodes] = await Promise.all([
-    prisma.patient.findMany({
+    const patients = await db.patient.findMany({
       where: { tenantId },
       orderBy: { lastName: "asc" },
-    }),
-    prisma.episode.findMany({
+    });
+    const episodes = await db.episode.findMany({
       where: { tenantId },
       include: { patient: true },
       orderBy: { createdAt: "desc" },
-    }),
-  ]);
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Episodios</h1>
@@ -210,5 +216,6 @@ export default async function EpisodesPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }

@@ -2,15 +2,18 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const transitSchema = z.object({
   deliveryId: z.string().min(1),
@@ -31,44 +34,46 @@ async function markInTransit(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
-  const parsed = transitSchema.safeParse({
-    deliveryId: formData.get("deliveryId"),
-    carrierName: formData.get("carrierName"),
-    carrierDni: formData.get("carrierDni"),
-  });
+    const parsed = transitSchema.safeParse({
+      deliveryId: formData.get("deliveryId"),
+      carrierName: formData.get("carrierName"),
+      carrierDni: formData.get("carrierDni"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const delivery = await prisma.delivery.findFirst({
-    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
-  });
+    const delivery = await db.delivery.findFirst({
+      where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+    });
 
-  if (!delivery || delivery.status !== "PACKED") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!delivery || delivery.status !== "PACKED") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  const updated = await prisma.delivery.update({
-    where: { id: delivery.id },
-    data: {
-      status: "IN_TRANSIT",
-      inTransitAt: new Date(),
-      carrierName: parsed.data.carrierName,
-      carrierDni: parsed.data.carrierDni,
-      carrierSignedAt: new Date(),
-    },
-  });
+    const updated = await db.delivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: "IN_TRANSIT",
+        inTransitAt: new Date(),
+        carrierName: parsed.data.carrierName,
+        carrierDni: parsed.data.carrierDni,
+        carrierSignedAt: new Date(),
+      },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "delivery.in_transit",
-    entityType: "Delivery",
-    entityId: updated.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "delivery.in_transit",
+      entityType: "Delivery",
+      entityId: updated.id,
+    });
   });
 
   revalidatePath("/logistics/deliveries");
@@ -80,59 +85,61 @@ async function markDelivered(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
-  const parsed = deliveredSchema.safeParse({
-    deliveryId: formData.get("deliveryId"),
-    receiverName: formData.get("receiverName"),
-    receiverDni: formData.get("receiverDni"),
-    receiverRelation: formData.get("receiverRelation"),
-  });
+    const parsed = deliveredSchema.safeParse({
+      deliveryId: formData.get("deliveryId"),
+      receiverName: formData.get("receiverName"),
+      receiverDni: formData.get("receiverDni"),
+      receiverRelation: formData.get("receiverRelation"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const delivery = await prisma.delivery.findFirst({
-    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
-  });
+    const delivery = await db.delivery.findFirst({
+      where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+    });
 
-  if (!delivery || delivery.status !== "IN_TRANSIT") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!delivery || delivery.status !== "IN_TRANSIT") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  if (!delivery.carrierName || !delivery.carrierDni) {
-    throw new Error("CARRIER_SIGNATURE_REQUIRED");
-  }
+    if (!delivery.carrierName || !delivery.carrierDni) {
+      throw new Error("CARRIER_SIGNATURE_REQUIRED");
+    }
 
-  const minEvidence = Number(process.env.DELIVERY_MIN_EVIDENCE ?? "1");
-  const evidenceCount = await prisma.deliveryEvidence.count({
-    where: { deliveryId: parsed.data.deliveryId },
-  });
+    const minEvidence = Number(process.env.DELIVERY_MIN_EVIDENCE ?? "1");
+    const evidenceCount = await db.deliveryEvidence.count({
+      where: { deliveryId: parsed.data.deliveryId },
+    });
 
-  if (evidenceCount < minEvidence) {
-    throw new Error("EVIDENCE_REQUIRED");
-  }
+    if (evidenceCount < minEvidence) {
+      throw new Error("EVIDENCE_REQUIRED");
+    }
 
-  const updated = await prisma.delivery.update({
-    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
-    data: {
-      status: "DELIVERED",
-      deliveredAt: new Date(),
-      receiverName: parsed.data.receiverName,
-      receiverDni: parsed.data.receiverDni,
-      receiverRelation: parsed.data.receiverRelation,
-      receiverSignedAt: new Date(),
-    },
-  });
+    const updated = await db.delivery.update({
+      where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+      data: {
+        status: "DELIVERED",
+        deliveredAt: new Date(),
+        receiverName: parsed.data.receiverName,
+        receiverDni: parsed.data.receiverDni,
+        receiverRelation: parsed.data.receiverRelation,
+        receiverSignedAt: new Date(),
+      },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "delivery.delivered",
-    entityType: "Delivery",
-    entityId: updated.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "delivery.delivered",
+      entityType: "Delivery",
+      entityId: updated.id,
+    });
   });
 
   revalidatePath("/logistics/deliveries");
@@ -144,31 +151,33 @@ async function closeDelivery(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
-  const deliveryId = String(formData.get("deliveryId") ?? "");
-  if (!deliveryId) throw new Error("VALIDATION_ERROR");
+    const deliveryId = String(formData.get("deliveryId") ?? "");
+    if (!deliveryId) throw new Error("VALIDATION_ERROR");
 
-  const delivery = await prisma.delivery.findFirst({
-    where: { id: deliveryId, tenantId: session.user.tenantId },
-  });
+    const delivery = await db.delivery.findFirst({
+      where: { id: deliveryId, tenantId: session.user.tenantId },
+    });
 
-  if (!delivery || delivery.status !== "DELIVERED") {
-    throw new Error("INVALID_STATUS");
-  }
+    if (!delivery || delivery.status !== "DELIVERED") {
+      throw new Error("INVALID_STATUS");
+    }
 
-  const updated = await prisma.delivery.update({
-    where: { id: deliveryId },
-    data: { status: "CLOSED", closedAt: new Date() },
-  });
+    const updated = await db.delivery.update({
+      where: { id: deliveryId },
+      data: { status: "CLOSED", closedAt: new Date() },
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "delivery.closed",
-    entityType: "Delivery",
-    entityId: updated.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "delivery.closed",
+      entityType: "Delivery",
+      entityId: updated.id,
+    });
   });
 
   revalidatePath("/logistics/deliveries");
@@ -182,21 +191,22 @@ export default async function DeliveriesPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "LOGISTICS");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "LOGISTICS");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const deliveries = await prisma.delivery.findMany({
-    where: { tenantId },
-    include: {
-      approvedOrder: { include: { patient: true } },
-      evidence: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    const deliveries = await db.delivery.findMany({
+      where: { tenantId },
+      include: {
+        approvedOrder: { include: { patient: true } },
+        evidence: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Entregas</h1>
@@ -314,5 +324,6 @@ export default async function DeliveriesPage() {
         ) : null}
       </div>
     </div>
-  );
+    );
+  });
 }

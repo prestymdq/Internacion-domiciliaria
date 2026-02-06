@@ -2,14 +2,17 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const movementSchema = z.object({
   warehouseId: z.string().min(1),
@@ -26,45 +29,47 @@ async function createMovement(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "INVENTORY");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "INVENTORY");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const parsed = movementSchema.safeParse({
-    warehouseId: formData.get("warehouseId"),
-    productId: formData.get("productId"),
-    type: formData.get("type"),
-    quantity: formData.get("quantity"),
-    referenceType: formData.get("referenceType"),
-    referenceId: formData.get("referenceId"),
-  });
+    const parsed = movementSchema.safeParse({
+      warehouseId: formData.get("warehouseId"),
+      productId: formData.get("productId"),
+      type: formData.get("type"),
+      quantity: formData.get("quantity"),
+      referenceType: formData.get("referenceType"),
+      referenceId: formData.get("referenceId"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const movement = await prisma.stockMovement.create({
-    data: {
+    const movement = await db.stockMovement.create({
+      data: {
+        tenantId: session.user.tenantId,
+        warehouseId: parsed.data.warehouseId,
+        productId: parsed.data.productId,
+        type: parsed.data.type,
+        quantity: Number(parsed.data.quantity),
+        referenceType: parsed.data.referenceType ?? null,
+        referenceId: parsed.data.referenceId ?? null,
+        createdById: session.user.id,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      warehouseId: parsed.data.warehouseId,
-      productId: parsed.data.productId,
-      type: parsed.data.type,
-      quantity: Number(parsed.data.quantity),
-      referenceType: parsed.data.referenceType ?? null,
-      referenceId: parsed.data.referenceId ?? null,
-      createdById: session.user.id,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "stock.movement.create",
-    entityType: "StockMovement",
-    entityId: movement.id,
-    meta: {
-      type: movement.type,
-      quantity: movement.quantity,
-    },
+      actorId: session.user.id,
+      action: "stock.movement.create",
+      entityType: "StockMovement",
+      entityId: movement.id,
+      meta: {
+        type: movement.type,
+        quantity: movement.quantity,
+      },
+    });
   });
 
   revalidatePath("/inventory/stock");
@@ -78,26 +83,28 @@ export default async function StockPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "INVENTORY");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "INVENTORY");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [products, warehouses, movements] = await Promise.all([
-    prisma.product.findMany({ where: { tenantId }, orderBy: { name: "asc" } }),
-    prisma.warehouse.findMany({
+    const products = await db.product.findMany({
       where: { tenantId },
       orderBy: { name: "asc" },
-    }),
-    prisma.stockMovement.findMany({
+    });
+    const warehouses = await db.warehouse.findMany({
+      where: { tenantId },
+      orderBy: { name: "asc" },
+    });
+    const movements = await db.stockMovement.findMany({
       where: { tenantId },
       include: { product: true, warehouse: true },
       orderBy: { createdAt: "desc" },
       take: 30,
-    }),
-  ]);
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Movimientos de stock</h1>
@@ -185,5 +192,6 @@ export default async function StockPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }

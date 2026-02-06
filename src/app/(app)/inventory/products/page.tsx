@@ -2,14 +2,17 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const productSchema = z.object({
   name: z.string().min(1),
@@ -24,38 +27,40 @@ async function createProduct(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "INVENTORY");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "INVENTORY");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const parsed = productSchema.safeParse({
-    name: formData.get("name"),
-    sku: formData.get("sku"),
-    unit: formData.get("unit"),
-    packSize: formData.get("packSize"),
-  });
+    const parsed = productSchema.safeParse({
+      name: formData.get("name"),
+      sku: formData.get("sku"),
+      unit: formData.get("unit"),
+      packSize: formData.get("packSize"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const product = await prisma.product.create({
-    data: {
+    const product = await db.product.create({
+      data: {
+        tenantId: session.user.tenantId,
+        name: parsed.data.name,
+        sku: parsed.data.sku || null,
+        unit: parsed.data.unit,
+        packSize: parsed.data.packSize
+          ? Number(parsed.data.packSize)
+          : null,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      name: parsed.data.name,
-      sku: parsed.data.sku || null,
-      unit: parsed.data.unit,
-      packSize: parsed.data.packSize
-        ? Number(parsed.data.packSize)
-        : null,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "product.create",
-    entityType: "Product",
-    entityId: product.id,
+      actorId: session.user.id,
+      action: "product.create",
+      entityType: "Product",
+      entityId: product.id,
+    });
   });
 
   revalidatePath("/inventory/products");
@@ -69,17 +74,18 @@ export default async function ProductsPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "INVENTORY");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "INVENTORY");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const products = await prisma.product.findMany({
-    where: { tenantId },
-    orderBy: { createdAt: "desc" },
-  });
+    const products = await db.product.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Productos</h1>
@@ -131,5 +137,6 @@ export default async function ProductsPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }

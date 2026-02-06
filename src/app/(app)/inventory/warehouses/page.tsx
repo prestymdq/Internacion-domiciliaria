@@ -2,14 +2,17 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const warehouseSchema = z.object({
   name: z.string().min(1),
@@ -22,32 +25,34 @@ async function createWarehouse(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "INVENTORY");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "INVENTORY");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.DEPOSITO]);
 
-  const parsed = warehouseSchema.safeParse({
-    name: formData.get("name"),
-    location: formData.get("location"),
-  });
+    const parsed = warehouseSchema.safeParse({
+      name: formData.get("name"),
+      location: formData.get("location"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const warehouse = await prisma.warehouse.create({
-    data: {
+    const warehouse = await db.warehouse.create({
+      data: {
+        tenantId: session.user.tenantId,
+        name: parsed.data.name,
+        location: parsed.data.location ?? null,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      name: parsed.data.name,
-      location: parsed.data.location ?? null,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "warehouse.create",
-    entityType: "Warehouse",
-    entityId: warehouse.id,
+      actorId: session.user.id,
+      action: "warehouse.create",
+      entityType: "Warehouse",
+      entityId: warehouse.id,
+    });
   });
 
   revalidatePath("/inventory/warehouses");
@@ -61,17 +66,18 @@ export default async function WarehousesPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "INVENTORY");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "INVENTORY");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const warehouses = await prisma.warehouse.findMany({
-    where: { tenantId },
-    orderBy: { createdAt: "desc" },
-  });
+    const warehouses = await db.warehouse.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Depósitos</h1>
@@ -117,5 +123,6 @@ export default async function WarehousesPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }
