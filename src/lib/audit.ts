@@ -1,4 +1,4 @@
-import { prisma } from "./db";
+import { Prisma } from "@prisma/client";
 
 type AuditPayload = {
   tenantId?: string | null;
@@ -11,8 +11,11 @@ type AuditPayload = {
   userAgent?: string | null;
 };
 
-export async function logAudit(payload: AuditPayload) {
-  await prisma.auditLog.create({
+export async function logAudit(
+  db: Prisma.TransactionClient,
+  payload: AuditPayload,
+) {
+  await db.auditLog.create({
     data: {
       tenantId: payload.tenantId ?? null,
       actorId: payload.actorId ?? null,

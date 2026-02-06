@@ -1,8 +1,10 @@
-import { prisma } from "@/lib/db";
-import { InvoiceStatus } from "@prisma/client";
+import { InvoiceStatus, Prisma } from "@prisma/client";
 
-export async function recalcInvoiceStatus(invoiceId: string) {
-  const invoice = await prisma.invoice.findUnique({
+export async function recalcInvoiceStatus(
+  db: Prisma.TransactionClient,
+  invoiceId: string,
+) {
+  const invoice = await db.invoice.findUnique({
     where: { id: invoiceId },
     include: {
       items: true,
@@ -36,7 +38,7 @@ export async function recalcInvoiceStatus(invoiceId: string) {
     status = InvoiceStatus.PARTIAL;
   }
 
-  await prisma.invoice.update({
+  await db.invoice.update({
     where: { id: invoiceId },
     data: {
       totalAmount: totalItems,

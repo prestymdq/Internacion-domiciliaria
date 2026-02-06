@@ -1,7 +1,11 @@
-import { prisma } from "./db";
+import { Prisma } from "@prisma/client";
 
-export async function nextSequence(tenantId: string, key: string) {
-  const seq = await prisma.sequence.upsert({
+export async function nextSequence(
+  db: Prisma.TransactionClient,
+  tenantId: string,
+  key: string,
+) {
+  const seq = await db.sequence.upsert({
     where: { tenantId_key: { tenantId, key } },
     update: { value: { increment: 1 } },
     create: { tenantId, key, value: 1 },
@@ -19,11 +23,15 @@ export function formatDeliveryNumber(
   return `DEL-${year}${month}-${padded}`;
 }
 
-export async function nextDeliveryNumber(tenantId: string, date = new Date()) {
+export async function nextDeliveryNumber(
+  db: Prisma.TransactionClient,
+  tenantId: string,
+  date = new Date(),
+) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const key = `delivery:${year}${month}`;
-  const seq = await nextSequence(tenantId, key);
+  const seq = await nextSequence(db, tenantId, key);
   return formatDeliveryNumber(date, seq);
 }
 
@@ -34,10 +42,14 @@ export function formatInvoiceNumber(date: Date, sequence: number): string {
   return `INV-${year}${month}-${padded}`;
 }
 
-export async function nextInvoiceNumber(tenantId: string, date = new Date()) {
+export async function nextInvoiceNumber(
+  db: Prisma.TransactionClient,
+  tenantId: string,
+  date = new Date(),
+) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const key = `invoice:${year}${month}`;
-  const seq = await nextSequence(tenantId, key);
+  const seq = await nextSequence(db, tenantId, key);
   return formatInvoiceNumber(date, seq);
 }

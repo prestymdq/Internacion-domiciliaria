@@ -1,5 +1,4 @@
-import { PlanTier, TenantStatus } from "@prisma/client";
-import { prisma } from "./db";
+import { PlanTier, Prisma, TenantStatus } from "@prisma/client";
 
 export type ModuleKey =
   | "CLINIC"
@@ -27,10 +26,11 @@ const planMatrix: Record<PlanTier, ModuleKey[]> = {
 const defaultPastDueBlocks: ModuleKey[] = ["LOGISTICS", "INVENTORY"];
 
 export async function getTenantModuleAccess(
+  db: Prisma.TransactionClient,
   tenantId: string,
   moduleKey: ModuleKey,
 ) {
-  const tenant = await prisma.tenant.findUnique({
+  const tenant = await db.tenant.findUnique({
     where: { id: tenantId },
     include: { policy: true },
   });
@@ -74,10 +74,11 @@ export async function getTenantModuleAccess(
 }
 
 export async function assertTenantModuleAccess(
+  db: Prisma.TransactionClient,
   tenantId: string,
   moduleKey: ModuleKey,
 ) {
-  const access = await getTenantModuleAccess(tenantId, moduleKey);
+  const access = await getTenantModuleAccess(db, tenantId, moduleKey);
   if (!access.allowed) {
     throw new Error(access.reason ?? "FORBIDDEN");
   }
