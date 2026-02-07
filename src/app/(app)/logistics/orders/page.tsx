@@ -157,7 +157,7 @@ async function createOrder(formData: FormData) {
     const order = await db.approvedOrder.create({
       data: {
         tenantId: session.user.tenantId,
-        patientId: parsed.data.patientId,
+        patientId: patient.id,
         notes: parsed.data.notes ?? null,
       },
     });

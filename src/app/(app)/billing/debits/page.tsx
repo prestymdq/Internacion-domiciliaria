@@ -39,6 +39,13 @@ async function createDebit(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const invoice = await db.invoice.findFirst({
+      where: { id: parsed.data.invoiceId, tenantId: session.user.tenantId },
+    });
+    if (!invoice) {
+      throw new Error("INVOICE_NOT_FOUND");
+    }
+
     const amount = Number(parsed.data.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("INVALID_AMOUNT");
@@ -47,7 +54,7 @@ async function createDebit(formData: FormData) {
     const debit = await db.debitNote.create({
       data: {
         tenantId: session.user.tenantId,
-        invoiceId: parsed.data.invoiceId,
+        invoiceId: invoice.id,
         amount,
         reason: parsed.data.reason,
         createdById: session.user.id,

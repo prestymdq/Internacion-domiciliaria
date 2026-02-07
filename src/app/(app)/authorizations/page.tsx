@@ -65,6 +65,43 @@ async function createAuthorization(formData: FormData) {
 
     if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
+    const payer = await db.payer.findFirst({
+      where: { id: parsed.data.payerId, tenantId: session.user.tenantId },
+    });
+    if (!payer) {
+      throw new Error("PAYER_NOT_FOUND");
+    }
+
+    let planId: string | null = parsed.data.planId || null;
+    if (planId) {
+      const plan = await db.payerPlan.findFirst({
+        where: { id: planId, tenantId: session.user.tenantId },
+      });
+      if (!plan || plan.payerId !== payer.id) {
+        throw new Error("PLAN_PAYER_MISMATCH");
+      }
+    }
+
+    const patient = await db.patient.findFirst({
+      where: { id: parsed.data.patientId, tenantId: session.user.tenantId },
+    });
+    if (!patient) {
+      throw new Error("PATIENT_NOT_FOUND");
+    }
+
+    let episodeId: string | null = parsed.data.episodeId || null;
+    if (episodeId) {
+      const episode = await db.episode.findFirst({
+        where: { id: episodeId, tenantId: session.user.tenantId },
+      });
+      if (!episode) {
+        throw new Error("EPISODE_NOT_FOUND");
+      }
+      if (episode.patientId !== patient.id) {
+        throw new Error("EPISODE_PATIENT_MISMATCH");
+      }
+    }
+
     const requirements = await db.payerRequirement.findMany({
       where: { tenantId: session.user.tenantId, payerId: parsed.data.payerId },
     });
@@ -72,10 +109,10 @@ async function createAuthorization(formData: FormData) {
     const authorization = await db.authorization.create({
       data: {
         tenantId: session.user.tenantId,
-        payerId: parsed.data.payerId,
-        planId: parsed.data.planId || null,
-        patientId: parsed.data.patientId,
-        episodeId: parsed.data.episodeId || null,
+        payerId: payer.id,
+        planId,
+        patientId: patient.id,
+        episodeId,
         number: parsed.data.number,
         status:
           requirements.length === 0

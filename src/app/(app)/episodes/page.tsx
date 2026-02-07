@@ -75,6 +75,13 @@ async function createEpisode(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const patient = await db.patient.findFirst({
+      where: { id: parsed.data.patientId, tenantId: session.user.tenantId },
+    });
+    if (!patient) {
+      throw new Error("PATIENT_NOT_FOUND");
+    }
+
     const defaultStage = await db.episodeWorkflowStage.findFirst({
       where: { tenantId: session.user.tenantId },
       orderBy: { sortOrder: "asc" },
@@ -83,7 +90,7 @@ async function createEpisode(formData: FormData) {
     const episode = await db.episode.create({
       data: {
         tenantId: session.user.tenantId,
-        patientId: parsed.data.patientId,
+        patientId: patient.id,
         startDate: new Date(parsed.data.startDate),
         diagnosis: parsed.data.diagnosis ?? null,
         notes: parsed.data.notes ?? null,

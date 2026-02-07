@@ -48,6 +48,20 @@ async function upsertRule(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const payer = await db.payer.findFirst({
+      where: { id: parsed.data.payerId, tenantId: session.user.tenantId },
+    });
+    if (!payer) {
+      throw new Error("PAYER_NOT_FOUND");
+    }
+
+    const product = await db.product.findFirst({
+      where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
+    }
+
     const unitPrice = Number(parsed.data.unitPrice);
     const honorarium = parsed.data.honorarium
       ? Number(parsed.data.honorarium)
@@ -87,9 +101,9 @@ async function upsertRule(formData: FormData) {
       : await db.billingRule.create({
           data: {
             tenantId: session.user.tenantId,
-            payerId: parsed.data.payerId,
+            payerId: payer.id,
             planId,
-            productId: parsed.data.productId,
+            productId: product.id,
             unitPrice,
             honorarium,
           },
@@ -126,6 +140,13 @@ async function updateRule(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const existing = await db.billingRule.findFirst({
+      where: { id: parsed.data.ruleId, tenantId: session.user.tenantId },
+    });
+    if (!existing) {
+      throw new Error("RULE_NOT_FOUND");
+    }
+
     const unitPrice = Number(parsed.data.unitPrice);
     const honorarium = parsed.data.honorarium
       ? Number(parsed.data.honorarium)
@@ -139,7 +160,7 @@ async function updateRule(formData: FormData) {
     }
 
     const rule = await db.billingRule.update({
-      where: { id: parsed.data.ruleId },
+      where: { id: existing.id },
       data: { unitPrice, honorarium },
     });
 

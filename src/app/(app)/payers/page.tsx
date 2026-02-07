@@ -83,10 +83,17 @@ async function createPlan(formData: FormData) {
     });
     if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
+    const payer = await db.payer.findFirst({
+      where: { id: parsed.data.payerId, tenantId: session.user.tenantId },
+    });
+    if (!payer) {
+      throw new Error("PAYER_NOT_FOUND");
+    }
+
     const plan = await db.payerPlan.create({
       data: {
         tenantId: session.user.tenantId,
-        payerId: parsed.data.payerId,
+        payerId: payer.id,
         name: parsed.data.name,
       },
     });
@@ -122,10 +129,17 @@ async function createRequirement(formData: FormData) {
     });
     if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
+    const payer = await db.payer.findFirst({
+      where: { id: parsed.data.payerId, tenantId: session.user.tenantId },
+    });
+    if (!payer) {
+      throw new Error("PAYER_NOT_FOUND");
+    }
+
     const requirement = await db.payerRequirement.create({
       data: {
         tenantId: session.user.tenantId,
-        payerId: parsed.data.payerId,
+        payerId: payer.id,
         name: parsed.data.name,
         isRequired: parsed.data.isRequired === "on",
       },

@@ -13,6 +13,7 @@ const errorMessages: Record<string, string> = {
   DELIVERY_ALREADY_INVOICED: "La entrega ya fue facturada.",
   NO_BILLABLE_ITEMS: "No hay items facturables.",
   BILLING_RULE_MISSING: "Faltan reglas de facturacion para algun item.",
+  RULE_NOT_FOUND: "Regla de facturacion no encontrada.",
   AUTHORIZATION_NOT_FOUND: "Autorizacion no encontrada.",
   AUTHORIZATION_MISMATCH: "Autorizacion no corresponde al paciente.",
   AUTHORIZATION_NOT_ACTIVE: "Autorizacion no activa.",
@@ -23,6 +24,17 @@ const errorMessages: Record<string, string> = {
   AUTHORIZATION_LIMIT_AMOUNT: "Se excede el limite de monto.",
   CHECKLIST_INCOMPLETE: "Falta completar checklist obligatorio.",
   NOTE_REQUIRED: "Falta nota clinica.",
+  KIT_NOT_FOUND: "Kit no encontrado.",
+  PRODUCT_NOT_FOUND: "Producto no encontrado.",
+  PATIENT_NOT_FOUND: "Paciente no encontrado.",
+  ORDER_NOT_FOUND: "Orden no encontrada.",
+  PAYER_NOT_FOUND: "Obra social no encontrada.",
+  PLAN_PAYER_MISMATCH: "El plan no pertenece a la obra social.",
+  EPISODE_PATIENT_MISMATCH: "El episodio no corresponde al paciente.",
+  BATCH_NOT_FOUND: "Lote no encontrado.",
+  BATCH_PRODUCT_MISMATCH: "El lote no corresponde al producto.",
+  INVOICE_NOT_FOUND: "Factura no encontrada.",
+  WAREHOUSE_NOT_FOUND: "Deposito no encontrado.",
 };
 
 export function getErrorMessage(code?: string | null) {

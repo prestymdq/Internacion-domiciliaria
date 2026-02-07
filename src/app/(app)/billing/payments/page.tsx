@@ -43,6 +43,13 @@ async function createPayment(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const invoice = await db.invoice.findFirst({
+      where: { id: parsed.data.invoiceId, tenantId: session.user.tenantId },
+    });
+    if (!invoice) {
+      throw new Error("INVOICE_NOT_FOUND");
+    }
+
     const amount = Number(parsed.data.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("INVALID_AMOUNT");
@@ -51,7 +58,7 @@ async function createPayment(formData: FormData) {
     const payment = await db.payment.create({
       data: {
         tenantId: session.user.tenantId,
-        invoiceId: parsed.data.invoiceId,
+        invoiceId: invoice.id,
         amount,
         method: parsed.data.method ?? null,
         reference: parsed.data.reference ?? null,
