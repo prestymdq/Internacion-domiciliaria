@@ -4,7 +4,10 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import { recalcInvoiceStatus } from "@/lib/billing";
 import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
@@ -36,11 +39,16 @@ async function createDebit(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const amount = Number(parsed.data.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("INVALID_AMOUNT");
+    }
+
     const debit = await db.debitNote.create({
       data: {
         tenantId: session.user.tenantId,
         invoiceId: parsed.data.invoiceId,
-        amount: Number(parsed.data.amount),
+        amount,
         reason: parsed.data.reason,
         createdById: session.user.id,
       },
@@ -79,74 +87,100 @@ export default async function DebitsPage() {
     });
     const debits = await db.debitNote.findMany({
       where: { tenantId },
-      include: { invoice: true },
+      include: {
+        invoice: { include: { items: true, debitNotes: true, payments: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
 
     return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Débitos</h1>
-        <p className="text-sm text-muted-foreground">
-          Rechazos / débitos sobre facturas.
-        </p>
-      </div>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Debitos</h1>
+          <p className="text-sm text-muted-foreground">
+            Rechazos o debitos sobre facturas.
+          </p>
+        </div>
 
-      <form action={createDebit} className="grid gap-3 md:grid-cols-3">
-        <select
-          name="invoiceId"
-          className="h-10 rounded-md border bg-background px-3 text-sm"
-          required
-        >
-          <option value="">Factura...</option>
-          {invoices.map((invoice) => (
-            <option key={invoice.id} value={invoice.id}>
-              {invoice.invoiceNumber}
-            </option>
-          ))}
-        </select>
-        <Input name="amount" type="number" step="0.01" placeholder="Monto" />
-        <Input name="reason" placeholder="Motivo" />
-        <Button type="submit" className="md:col-span-3">
-          Registrar débito
-        </Button>
-      </form>
-
-      <div className="overflow-hidden rounded-lg border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 text-left">
-            <tr>
-              <th className="px-3 py-2">Factura</th>
-              <th className="px-3 py-2">Monto</th>
-              <th className="px-3 py-2">Motivo</th>
-              <th className="px-3 py-2">Fecha</th>
-            </tr>
-          </thead>
-          <tbody>
-            {debits.map((debit) => (
-              <tr key={debit.id} className="border-t">
-                <td className="px-3 py-2">{debit.invoice.invoiceNumber}</td>
-                <td className="px-3 py-2">{debit.amount.toFixed(2)}</td>
-                <td className="px-3 py-2">{debit.reason}</td>
-                <td className="px-3 py-2">
-                  {debit.createdAt.toLocaleDateString("es-AR")}
-                </td>
-              </tr>
+        <form action={createDebit} className="grid gap-3 md:grid-cols-3">
+          <select
+            name="invoiceId"
+            className="h-10 rounded-md border bg-background px-3 text-sm"
+            required
+          >
+            <option value="">Factura...</option>
+            {invoices.map((invoice) => (
+              <option key={invoice.id} value={invoice.id}>
+                {invoice.invoiceNumber}
+              </option>
             ))}
-            {debits.length === 0 ? (
+          </select>
+          <Input
+            name="amount"
+            type="number"
+            step="0.01"
+            placeholder="Monto"
+            required
+          />
+          <Input name="reason" placeholder="Motivo" required />
+          <Button type="submit" className="md:col-span-3">
+            Registrar debito
+          </Button>
+        </form>
+
+        <div className="overflow-hidden rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-left">
               <tr>
-                <td
-                  className="px-3 py-4 text-sm text-muted-foreground"
-                  colSpan={4}
-                >
-                  Sin débitos aún.
-                </td>
+                <th className="px-3 py-2">Factura</th>
+                <th className="px-3 py-2">Monto</th>
+                <th className="px-3 py-2">Motivo</th>
+                <th className="px-3 py-2">Fecha</th>
+                <th className="px-3 py-2">Balance</th>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {debits.map((debit) => {
+                const totalItems = debit.invoice.items.reduce(
+                  (sum, item) => sum + item.total,
+                  0,
+                );
+                const totalDebits = debit.invoice.debitNotes.reduce(
+                  (sum, entry) => sum + entry.amount,
+                  0,
+                );
+                const totalPayments = debit.invoice.payments.reduce(
+                  (sum, entry) => sum + entry.amount,
+                  0,
+                );
+                const balance = Math.max(totalItems - totalDebits - totalPayments, 0);
+
+                return (
+                  <tr key={debit.id} className="border-t">
+                    <td className="px-3 py-2">{debit.invoice.invoiceNumber}</td>
+                    <td className="px-3 py-2">{debit.amount.toFixed(2)}</td>
+                    <td className="px-3 py-2">{debit.reason}</td>
+                    <td className="px-3 py-2">
+                      {debit.createdAt.toLocaleDateString("es-AR")}
+                    </td>
+                    <td className="px-3 py-2">{balance.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
+              {debits.length === 0 ? (
+                <tr>
+                  <td
+                    className="px-3 py-4 text-sm text-muted-foreground"
+                    colSpan={5}
+                  >
+                    Sin debitos aun.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
     );
   });
 }

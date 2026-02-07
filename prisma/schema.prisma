@@ -272,6 +272,7 @@ model Episode {
 
   visits       Visit[]
   clinicalNotes ClinicalNote[]
+  clinicalAttachments ClinicalAttachment[]
   carePlan    EpisodeCarePlan?
   authorizations Authorization[]
 
@@ -533,6 +534,7 @@ model PayerPlan {
   updatedAt DateTime @updatedAt
 
   authorizations Authorization[]
+  invoices Invoice[]
   billingRules BillingRule[]
 
   @@unique([tenantId, payerId, name])
@@ -577,6 +579,7 @@ model Authorization {
   updatedAt DateTime @updatedAt
 
   requirements AuthorizationRequirement[]
+  invoices     Invoice[]
 
   @@unique([tenantId, number])
   @@index([tenantId, payerId])
@@ -797,6 +800,8 @@ model ClinicalNote {
   structured Json?
   createdAt DateTime @default(now())
 
+  attachments ClinicalAttachment[]
+
   @@index([tenantId, patientId])
 }
 
@@ -844,6 +849,8 @@ model EpisodeWorkflowStage {
 
 model VisitChecklistItem {
   id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
   visitId      String
   visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   key          String
@@ -856,6 +863,7 @@ model VisitChecklistItem {
   completedBy  User?    @relation("VisitChecklistCompletedBy", fields: [completedById], references: [id])
   createdAt    DateTime @default(now())
 
+  @@index([tenantId])
   @@index([visitId])
 }
 

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
-import { AuthorizationStatus, Role } from "@prisma/client";
+import { AuthorizationStatus, RequirementStatus, Role } from "@prisma/client";
 import {
   assertTenantModuleAccess,
   getTenantModuleAccess,
@@ -31,6 +31,11 @@ const authorizationSchema = z.object({
 const authorizationStatusSchema = z.object({
   authorizationId: z.string().min(1),
   status: z.nativeEnum(AuthorizationStatus),
+});
+
+const requirementStatusSchema = z.object({
+  requirementId: z.string().min(1),
+  status: z.nativeEnum(RequirementStatus),
 });
 
 async function createAuthorization(formData: FormData) {
@@ -72,7 +77,10 @@ async function createAuthorization(formData: FormData) {
         patientId: parsed.data.patientId,
         episodeId: parsed.data.episodeId || null,
         number: parsed.data.number,
-        status: AuthorizationStatus.PENDING,
+        status:
+          requirements.length === 0
+            ? AuthorizationStatus.ACTIVE
+            : AuthorizationStatus.PENDING,
         startDate: new Date(parsed.data.startDate),
         endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
         limitAmount: parsed.data.limitAmount
@@ -136,6 +144,46 @@ async function updateAuthorizationStatus(formData: FormData) {
       actorId: session.user.id,
       action: "authorization.status.update",
       entityType: "Authorization",
+      entityId: updated.id,
+      meta: { status: parsed.data.status },
+    });
+  });
+
+  revalidatePath("/authorizations");
+}
+
+async function updateRequirementStatus(formData: FormData) {
+  "use server";
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "AUTHORIZATIONS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.FACTURACION,
+    ]);
+
+    const parsed = requirementStatusSchema.safeParse({
+      requirementId: formData.get("requirementId"),
+      status: formData.get("status"),
+    });
+
+    if (!parsed.success) throw new Error("VALIDATION_ERROR");
+
+    const updated = await db.authorizationRequirement.update({
+      where: {
+        id: parsed.data.requirementId,
+        tenantId: session.user.tenantId,
+      },
+      data: { status: parsed.data.status },
+    });
+
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "authorization.requirement.status.update",
+      entityType: "AuthorizationRequirement",
       entityId: updated.id,
       meta: { status: parsed.data.status },
     });
@@ -321,6 +369,26 @@ export default async function AuthorizationsPage() {
                           Archivo: {req.fileName}
                         </div>
                       ) : null}
+                      <form
+                        action={updateRequirementStatus}
+                        className="mt-2 flex items-center gap-2"
+                      >
+                        <input type="hidden" name="requirementId" value={req.id} />
+                        <select
+                          name="status"
+                          className="h-8 rounded-md border bg-background px-2 text-xs"
+                          defaultValue={req.status}
+                        >
+                          {Object.values(RequirementStatus).map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                        <Button size="sm" variant="outline" type="submit">
+                          Guardar
+                        </Button>
+                      </form>
                       <form
                         action={`/api/authorizations/requirements/${req.id}/upload`}
                         method="post"

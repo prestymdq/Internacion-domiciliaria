@@ -61,6 +61,14 @@ async function upsertRule(formData: FormData) {
     }
 
     const planId = parsed.data.planId || null;
+    if (planId) {
+      const plan = await db.payerPlan.findFirst({
+        where: { id: planId, tenantId: session.user.tenantId },
+      });
+      if (!plan || plan.payerId !== parsed.data.payerId) {
+        throw new Error("PLAN_PAYER_MISMATCH");
+      }
+    }
 
     const existing = await db.billingRule.findFirst({
       where: {
@@ -187,6 +195,9 @@ export default async function BillingRulesPage() {
           <p className="text-sm text-muted-foreground">
             Precios por obra social/plan y honorarios por item.
           </p>
+          <p className="text-xs text-muted-foreground">
+            Las reglas de plan tienen prioridad sobre las reglas generales.
+          </p>
         </div>
 
         <form action={upsertRule} className="grid gap-3 md:grid-cols-5">
@@ -225,7 +236,13 @@ export default async function BillingRulesPage() {
               </option>
             ))}
           </select>
-          <Input name="unitPrice" type="number" step="0.01" placeholder="Precio" />
+          <Input
+            name="unitPrice"
+            type="number"
+            step="0.01"
+            placeholder="Precio"
+            required
+          />
           <Input
             name="honorarium"
             type="number"
@@ -264,6 +281,7 @@ export default async function BillingRulesPage() {
                         type="number"
                         step="0.01"
                         className="h-8 w-24"
+                        placeholder="Precio"
                         defaultValue={rule.unitPrice}
                       />
                       <Input
@@ -271,6 +289,7 @@ export default async function BillingRulesPage() {
                         type="number"
                         step="0.01"
                         className="h-8 w-24"
+                        placeholder="Honorario"
                         defaultValue={rule.honorarium}
                       />
                       <Button size="sm" variant="outline" type="submit">

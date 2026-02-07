@@ -56,10 +56,13 @@ export async function GET(request: Request) {
       doc.text(`Total: ${invoice.totalAmount.toFixed(2)} ARS`);
       doc.moveDown(0.5);
       invoice.items.forEach((item) => {
+        const unitTotal = item.unitPrice + item.honorarium;
         doc.text(
-          `${item.product.name} x ${item.quantity} @ ${item.unitPrice.toFixed(
+          `${item.product.name} x ${item.quantity} @ ${unitTotal.toFixed(
             2,
-          )} = ${item.total.toFixed(2)}`,
+          )} (honorario ${item.honorarium.toFixed(2)}) = ${item.total.toFixed(
+            2,
+          )}`,
         );
       });
       doc.moveDown();
@@ -87,6 +90,7 @@ export async function GET(request: Request) {
     "Item",
     "Cantidad",
     "PrecioUnitario",
+    "HonorarioUnitario",
     "Subtotal",
   ];
 
@@ -100,6 +104,7 @@ export async function GET(request: Request) {
       item.product.name,
       item.quantity,
       item.unitPrice,
+      item.honorarium,
       item.total,
     ]),
   );

@@ -99,6 +99,7 @@ async function createVisit(formData: FormData) {
 
     await db.visitChecklistItem.createMany({
       data: defaultChecklistItems.map((item) => ({
+        tenantId: session.user.tenantId,
         visitId: visit.id,
         key: item.key,
         label: item.label,
