@@ -1,0 +1,350 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: ID
+        - generic [ref=e7]:
+          - paragraph [ref=e8]: Plataforma
+          - paragraph [ref=e9]: Internacion Domiciliaria
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: Tenant
+        - paragraph [ref=e12]: Demo Salud
+        - paragraph [ref=e13]: TRIALING
+      - navigation [ref=e14]:
+        - link "Dashboard" [ref=e15] [cursor=pointer]:
+          - /url: /dashboard
+        - link "Pacientes" [ref=e16] [cursor=pointer]:
+          - /url: /patients
+        - link "Episodios" [ref=e17] [cursor=pointer]:
+          - /url: /episodes
+        - link "Agenda" [ref=e18] [cursor=pointer]:
+          - /url: /agenda
+        - generic [ref=e19]: Operacion
+        - link "Productos" [ref=e20] [cursor=pointer]:
+          - /url: /inventory/products
+        - link "Depositos" [ref=e21] [cursor=pointer]:
+          - /url: /inventory/warehouses
+        - link "Movimientos" [ref=e22] [cursor=pointer]:
+          - /url: /inventory/stock
+        - link "Ordenes" [ref=e23] [cursor=pointer]:
+          - /url: /logistics/orders
+        - link "Picklists" [ref=e24] [cursor=pointer]:
+          - /url: /logistics/picklists
+        - link "Entregas" [ref=e25] [cursor=pointer]:
+          - /url: /logistics/deliveries
+        - generic [ref=e26]: Financiero
+        - link "Obras sociales" [ref=e27] [cursor=pointer]:
+          - /url: /payers
+        - link "Autorizaciones" [ref=e28] [cursor=pointer]:
+          - /url: /authorizations
+        - link "Billing" [ref=e29] [cursor=pointer]:
+          - /url: /billing
+        - link "KPIs" [ref=e30] [cursor=pointer]:
+          - /url: /kpis
+      - generic [ref=e31]:
+        - link "Administrar plan" [ref=e32] [cursor=pointer]:
+          - /url: /billing
+        - button "Salir" [ref=e33]
+    - main [ref=e35]:
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - heading "Entregas" [level=1] [ref=e38]
+          - paragraph [ref=e39]: Doble firma + evidencia obligatoria + stock automatico.
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - generic [ref=e42]:
+              - generic [ref=e43]:
+                - generic [ref=e44]: DEL-202602-000016
+                - generic [ref=e45]: "Paciente: Factura678604, Test678604"
+                - generic [ref=e46]: "Estado: PACKED"
+              - link "PDF remito" [ref=e47] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcsn35900wdv78cmucrr6zh/pdf
+            - generic [ref=e48]:
+              - generic [ref=e49]:
+                - button "Choose File" [ref=e50]
+                - button "Subir evidencia" [ref=e51]
+                - paragraph [ref=e52]: "Evidencia: 0"
+              - generic [ref=e53]:
+                - textbox "Retirante" [ref=e54]
+                - textbox "DNI retirante" [ref=e55]
+                - button "Marcar en transito" [ref=e56]
+          - generic [ref=e57]:
+            - generic [ref=e58]:
+              - generic [ref=e59]:
+                - generic [ref=e60]: DEL-202602-000015
+                - generic [ref=e61]: "Paciente: Factura337874, Test337874"
+                - generic [ref=e62]: "Estado: PACKED"
+              - link "PDF remito" [ref=e63] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcsf90y00ulv78cinfo7bqh/pdf
+            - generic [ref=e64]:
+              - generic [ref=e65]:
+                - button "Choose File" [ref=e66]
+                - button "Subir evidencia" [ref=e67]
+                - paragraph [ref=e68]: "Evidencia: 0"
+              - generic [ref=e69]:
+                - textbox "Retirante" [ref=e70]
+                - textbox "DNI retirante" [ref=e71]
+                - button "Marcar en transito" [ref=e72]
+          - generic [ref=e73]:
+            - generic [ref=e74]:
+              - generic [ref=e75]:
+                - generic [ref=e76]: DEL-202602-000014
+                - generic [ref=e77]: "Paciente: Factura946490, Test946490"
+                - generic [ref=e78]: "Estado: PACKED"
+              - link "PDF remito" [ref=e79] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcs6tfz00spv78cjmvu3nfl/pdf
+            - generic [ref=e80]:
+              - generic [ref=e81]:
+                - button "Choose File" [ref=e82]
+                - button "Subir evidencia" [ref=e83]
+                - paragraph [ref=e84]: "Evidencia: 0"
+              - generic [ref=e85]:
+                - textbox "Retirante" [ref=e86]
+                - textbox "DNI retirante" [ref=e87]
+                - button "Marcar en transito" [ref=e88]
+          - generic [ref=e89]:
+            - generic [ref=e90]:
+              - generic [ref=e91]:
+                - generic [ref=e92]: DEL-202602-000013
+                - generic [ref=e93]: "Paciente: Factura826562, Test826562"
+                - generic [ref=e94]: "Estado: PACKED"
+              - link "PDF remito" [ref=e95] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcs4ab100qtv78cjgzzqbqv/pdf
+            - generic [ref=e96]:
+              - generic [ref=e97]:
+                - button "Choose File" [ref=e98]
+                - button "Subir evidencia" [ref=e99]
+                - paragraph [ref=e100]: "Evidencia: 0"
+              - generic [ref=e101]:
+                - textbox "Retirante" [ref=e102]
+                - textbox "DNI retirante" [ref=e103]
+                - button "Marcar en transito" [ref=e104]
+          - generic [ref=e105]:
+            - generic [ref=e106]:
+              - generic [ref=e107]:
+                - generic [ref=e108]: DEL-202602-000012
+                - generic [ref=e109]: "Paciente: Factura593081, Test593081"
+                - generic [ref=e110]: "Estado: PACKED"
+              - link "PDF remito" [ref=e111] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcrz1io00oxv78cbj7pxiuh/pdf
+            - generic [ref=e112]:
+              - generic [ref=e113]:
+                - button "Choose File" [ref=e114]
+                - button "Subir evidencia" [ref=e115]
+                - paragraph [ref=e116]: "Evidencia: 0"
+              - generic [ref=e117]:
+                - textbox "Retirante" [ref=e118]
+                - textbox "DNI retirante" [ref=e119]
+                - button "Marcar en transito" [ref=e120]
+          - generic [ref=e121]:
+            - generic [ref=e122]:
+              - generic [ref=e123]:
+                - generic [ref=e124]: DEL-202602-000011
+                - generic [ref=e125]: "Paciente: Factura492922, Test492922"
+                - generic [ref=e126]: "Estado: PACKED"
+              - link "PDF remito" [ref=e127] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcrwysh00n1v78cf69tdawm/pdf
+            - generic [ref=e128]:
+              - generic [ref=e129]:
+                - button "Choose File" [ref=e130]
+                - button "Subir evidencia" [ref=e131]
+                - paragraph [ref=e132]: "Evidencia: 0"
+              - generic [ref=e133]:
+                - textbox "Retirante" [ref=e134]
+                - textbox "DNI retirante" [ref=e135]
+                - button "Marcar en transito" [ref=e136]
+          - generic [ref=e137]:
+            - generic [ref=e138]:
+              - generic [ref=e139]:
+                - generic [ref=e140]: DEL-202602-000010
+                - generic [ref=e141]: "Paciente: Factura397318, Test397318"
+                - generic [ref=e142]: "Estado: PACKED"
+              - link "PDF remito" [ref=e143] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcrusj100l5v78c3fryfwf6/pdf
+            - generic [ref=e144]:
+              - generic [ref=e145]:
+                - button "Choose File" [ref=e146]
+                - button "Subir evidencia" [ref=e147]
+                - paragraph [ref=e148]: "Evidencia: 0"
+              - generic [ref=e149]:
+                - textbox "Retirante" [ref=e150]
+                - textbox "DNI retirante" [ref=e151]
+                - button "Marcar en transito" [ref=e152]
+          - generic [ref=e153]:
+            - generic [ref=e154]:
+              - generic [ref=e155]:
+                - generic [ref=e156]: DEL-202602-000009
+                - generic [ref=e157]: "Paciente: Factura272466, Test272466"
+                - generic [ref=e158]: "Estado: IN_TRANSIT"
+              - link "PDF remito" [ref=e159] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcrsfta00j7v78cksh1r0fr/pdf
+            - generic [ref=e160]:
+              - generic [ref=e161]:
+                - button "Choose File" [ref=e162]
+                - button "Subir evidencia" [ref=e163]
+                - paragraph [ref=e164]: "Evidencia: 0"
+              - generic [ref=e165]:
+                - textbox "Receptor" [ref=e166]
+                - textbox "DNI receptor" [ref=e167]
+                - textbox "Vinculo" [ref=e168]
+                - button "Marcar entregado" [ref=e169]
+          - generic [ref=e170]:
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - generic [ref=e173]: DEL-202602-000008
+                - generic [ref=e174]: "Paciente: Factura046658, Test046658"
+                - generic [ref=e175]: "Estado: IN_TRANSIT"
+              - link "PDF remito" [ref=e176] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcrnsui00h9v78c347d0m5g/pdf
+            - generic [ref=e177]:
+              - generic [ref=e178]:
+                - button "Choose File" [ref=e179]
+                - button "Subir evidencia" [ref=e180]
+                - paragraph [ref=e181]: "Evidencia: 0"
+              - generic [ref=e182]:
+                - textbox "Receptor" [ref=e183]
+                - textbox "DNI receptor" [ref=e184]
+                - textbox "Vinculo" [ref=e185]
+                - button "Marcar entregado" [ref=e186]
+          - generic [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]:
+                - generic [ref=e190]: DEL-202602-000007
+                - generic [ref=e191]: "Paciente: Factura786086, Test786086"
+                - generic [ref=e192]: "Estado: IN_TRANSIT"
+              - link "PDF remito" [ref=e193] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcrinwu00ftv78cm5j1zhmg/pdf
+            - generic [ref=e194]:
+              - generic [ref=e195]:
+                - button "Choose File" [ref=e196]
+                - button "Subir evidencia" [ref=e197]
+                - paragraph [ref=e198]: "Evidencia: 0"
+              - generic [ref=e199]:
+                - textbox "Receptor" [ref=e200]
+                - textbox "DNI receptor" [ref=e201]
+                - textbox "Vinculo" [ref=e202]
+                - button "Marcar entregado" [ref=e203]
+          - generic [ref=e204]:
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e207]: DEL-202602-000006
+                - generic [ref=e208]: "Paciente: Factura359364, Test359364"
+                - generic [ref=e209]: "Estado: IN_TRANSIT"
+              - link "PDF remito" [ref=e210] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcr8zgg00e5v78cvttlcg7k/pdf
+            - generic [ref=e211]:
+              - generic [ref=e212]:
+                - button "Choose File" [ref=e213]
+                - button "Subir evidencia" [ref=e214]
+                - paragraph [ref=e215]: "Evidencia: 0"
+              - generic [ref=e216]:
+                - textbox "Receptor" [ref=e217]
+                - textbox "DNI receptor" [ref=e218]
+                - textbox "Vinculo" [ref=e219]
+                - button "Marcar entregado" [ref=e220]
+          - generic [ref=e221]:
+            - generic [ref=e222]:
+              - generic [ref=e223]:
+                - generic [ref=e224]: DEL-202602-000005
+                - generic [ref=e225]: "Paciente: Factura251104, Test251104"
+                - generic [ref=e226]: "Estado: PACKED"
+              - link "PDF remito" [ref=e227] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcr6zq300crv78c0vv509qz/pdf
+            - generic [ref=e228]:
+              - generic [ref=e229]:
+                - button "Choose File" [ref=e230]
+                - button "Subir evidencia" [ref=e231]
+                - paragraph [ref=e232]: "Evidencia: 0"
+              - generic [ref=e233]:
+                - textbox "Retirante" [ref=e234]
+                - textbox "DNI retirante" [ref=e235]
+                - button "Marcar en transito" [ref=e236]
+          - generic [ref=e237]:
+            - generic [ref=e238]:
+              - generic [ref=e239]:
+                - generic [ref=e240]: DEL-202602-000004
+                - generic [ref=e241]: "Paciente: Factura773774, Test773774"
+                - generic [ref=e242]: "Estado: PACKED"
+              - link "PDF remito" [ref=e243] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcqwjqg009fv78cestgfcj1/pdf
+            - generic [ref=e244]:
+              - generic [ref=e245]:
+                - button "Choose File" [ref=e246]
+                - button "Subir evidencia" [ref=e247]
+                - paragraph [ref=e248]: "Evidencia: 0"
+              - generic [ref=e249]:
+                - textbox "Retirante" [ref=e250]
+                - textbox "DNI retirante" [ref=e251]
+                - button "Marcar en transito" [ref=e252]
+          - generic [ref=e253]:
+            - generic [ref=e254]:
+              - generic [ref=e255]:
+                - generic [ref=e256]: DEL-202602-000003
+                - generic [ref=e257]: "Paciente: Factura541547, Test541547"
+                - generic [ref=e258]: "Estado: PACKED"
+              - link "PDF remito" [ref=e259] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcqrncj007jv78cy7dbn2ug/pdf
+            - generic [ref=e260]:
+              - generic [ref=e261]:
+                - button "Choose File" [ref=e262]
+                - button "Subir evidencia" [ref=e263]
+                - paragraph [ref=e264]: "Evidencia: 0"
+              - generic [ref=e265]:
+                - textbox "Retirante" [ref=e266]
+                - textbox "DNI retirante" [ref=e267]
+                - button "Marcar en transito" [ref=e268]
+          - generic [ref=e269]:
+            - generic [ref=e270]:
+              - generic [ref=e271]:
+                - generic [ref=e272]: DEL-202602-000002
+                - generic [ref=e273]: "Paciente: Factura272316, Test272316"
+                - generic [ref=e274]: "Estado: PACKED"
+              - link "PDF remito" [ref=e275] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcqm273005rv78cw67rkho1/pdf
+            - generic [ref=e276]:
+              - generic [ref=e277]:
+                - button "Choose File" [ref=e278]
+                - button "Subir evidencia" [ref=e279]
+                - paragraph [ref=e280]: "Evidencia: 0"
+              - generic [ref=e281]:
+                - textbox "Retirante" [ref=e282]
+                - textbox "DNI retirante" [ref=e283]
+                - button "Marcar en transito" [ref=e284]
+          - generic [ref=e285]:
+            - generic [ref=e286]:
+              - generic [ref=e287]:
+                - generic [ref=e288]: DEL-202602-000001
+                - generic [ref=e289]: "Paciente: Factura140612, Test140612"
+                - generic [ref=e290]: "Estado: PACKED"
+              - link "PDF remito" [ref=e291] [cursor=pointer]:
+                - /url: /api/deliveries/cmlcqj250003vv78ct2msymmj/pdf
+            - generic [ref=e292]:
+              - generic [ref=e293]:
+                - button "Choose File" [ref=e294]
+                - button "Subir evidencia" [ref=e295]
+                - paragraph [ref=e296]: "Evidencia: 13"
+                - list [ref=e297]:
+                  - listitem [ref=e298]: evidence.txt
+                  - listitem [ref=e299]: evidence.txt
+                  - listitem [ref=e300]: evidence.txt
+                  - listitem [ref=e301]: evidence.txt
+                  - listitem [ref=e302]: evidence.txt
+                  - listitem [ref=e303]: evidence.txt
+                  - listitem [ref=e304]: evidence.txt
+                  - listitem [ref=e305]: evidence.txt
+                  - listitem [ref=e306]: evidence.txt
+                  - listitem [ref=e307]: evidence.txt
+                  - listitem [ref=e308]: evidence.txt
+                  - listitem [ref=e309]: evidence.txt
+                  - listitem [ref=e310]: evidence.txt
+              - generic [ref=e311]:
+                - textbox "Retirante" [ref=e312]
+                - textbox "DNI retirante" [ref=e313]
+                - button "Marcar en transito" [ref=e314]
+  - button "Open Next.js Dev Tools" [ref=e320] [cursor=pointer]:
+    - img [ref=e321]
+  - alert [ref=e324]
+```
