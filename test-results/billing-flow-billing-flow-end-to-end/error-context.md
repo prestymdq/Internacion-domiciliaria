@@ -1,0 +1,73 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: ID
+        - generic [ref=e7]:
+          - paragraph [ref=e8]: Plataforma
+          - paragraph [ref=e9]: Internacion Domiciliaria
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: Tenant
+        - paragraph [ref=e12]: Demo Salud
+        - paragraph [ref=e13]: TRIALING
+      - navigation [ref=e14]:
+        - link "Dashboard" [ref=e15] [cursor=pointer]:
+          - /url: /dashboard
+        - link "Pacientes" [ref=e16] [cursor=pointer]:
+          - /url: /patients
+        - link "Episodios" [ref=e17] [cursor=pointer]:
+          - /url: /episodes
+        - link "Agenda" [ref=e18] [cursor=pointer]:
+          - /url: /agenda
+        - generic [ref=e19]: Operacion
+        - link "Productos" [ref=e20] [cursor=pointer]:
+          - /url: /inventory/products
+        - link "Depositos" [ref=e21] [cursor=pointer]:
+          - /url: /inventory/warehouses
+        - link "Movimientos" [ref=e22] [cursor=pointer]:
+          - /url: /inventory/stock
+        - link "Ordenes" [ref=e23] [cursor=pointer]:
+          - /url: /logistics/orders
+        - link "Picklists" [ref=e24] [cursor=pointer]:
+          - /url: /logistics/picklists
+        - link "Entregas" [ref=e25] [cursor=pointer]:
+          - /url: /logistics/deliveries
+        - generic [ref=e26]: Financiero
+        - link "Obras sociales" [ref=e27] [cursor=pointer]:
+          - /url: /payers
+        - link "Autorizaciones" [ref=e28] [cursor=pointer]:
+          - /url: /authorizations
+        - link "Billing" [ref=e29] [cursor=pointer]:
+          - /url: /billing
+        - link "KPIs" [ref=e30] [cursor=pointer]:
+          - /url: /kpis
+      - generic [ref=e31]:
+        - link "Administrar plan" [ref=e32] [cursor=pointer]:
+          - /url: /billing
+        - button "Salir" [ref=e33]
+    - main [ref=e35]:
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - heading "Ocurrio un error" [level=1] [ref=e39]
+          - paragraph [ref=e40]: Falta evidencia obligatoria.
+        - generic [ref=e41]: "Codigo: EVIDENCE_REQUIRED"
+        - generic [ref=e42]:
+          - button "Reintentar" [ref=e43]
+          - link "Volver al dashboard" [ref=e44] [cursor=pointer]:
+            - /url: /dashboard
+  - generic [ref=e49] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e50]:
+      - img [ref=e51]
+    - generic [ref=e54]:
+      - button "Open issues overlay" [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]: "0"
+          - generic [ref=e58]: "1"
+        - generic [ref=e59]: Issue
+      - button "Collapse issues badge" [ref=e60]:
+        - img [ref=e61]
+  - alert [ref=e63]
+```
