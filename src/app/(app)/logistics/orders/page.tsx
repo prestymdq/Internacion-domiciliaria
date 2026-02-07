@@ -90,6 +90,20 @@ async function addKitItem(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const template = await db.kitTemplate.findFirst({
+      where: { id: parsed.data.kitTemplateId, tenantId: session.user.tenantId },
+    });
+    if (!template) {
+      throw new Error("KIT_NOT_FOUND");
+    }
+
+    const product = await db.product.findFirst({
+      where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
+    }
+
     const item = await db.kitTemplateItem.create({
       data: {
         kitTemplateId: parsed.data.kitTemplateId,
@@ -131,6 +145,13 @@ async function createOrder(formData: FormData) {
 
     if (!parsed.success) {
       throw new Error("VALIDATION_ERROR");
+    }
+
+    const patient = await db.patient.findFirst({
+      where: { id: parsed.data.patientId, tenantId: session.user.tenantId },
+    });
+    if (!patient) {
+      throw new Error("PATIENT_NOT_FOUND");
     }
 
     const order = await db.approvedOrder.create({
@@ -175,6 +196,20 @@ async function addOrderItem(formData: FormData) {
 
     if (!parsed.success) {
       throw new Error("VALIDATION_ERROR");
+    }
+
+    const order = await db.approvedOrder.findFirst({
+      where: { id: parsed.data.approvedOrderId, tenantId: session.user.tenantId },
+    });
+    if (!order) {
+      throw new Error("ORDER_NOT_FOUND");
+    }
+
+    const product = await db.product.findFirst({
+      where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
     }
 
     const item = await db.approvedOrderItem.create({

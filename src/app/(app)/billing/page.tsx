@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { stripe } from "@/lib/stripe";
+import { getStripe, requireStripe } from "@/lib/stripe";
 import {
   assertTenantModuleAccess,
   getTenantModuleAccess,
@@ -80,6 +80,7 @@ async function createCheckout(formData: FormData) {
     });
   }
 
+  const stripe = requireStripe();
   const checkout = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: stripeCustomerId ?? undefined,
@@ -122,6 +123,7 @@ async function openPortal() {
     throw new Error("NO_CUSTOMER");
   }
 
+  const stripe = requireStripe();
   const portal = await stripe.billingPortal.sessions.create({
     customer: subscription.stripeCustomerId,
     return_url:
@@ -194,6 +196,8 @@ export default async function BillingPage() {
     const blockedModules =
       (policy?.pastDueBlockedModules as string[] | null) ?? [];
 
+    const stripeConfigured = Boolean(getStripe());
+
     return (
     <div className="space-y-6">
       <div>
@@ -215,18 +219,29 @@ export default async function BillingPage() {
         <p className="text-sm">
           Suscripción: {subscription?.status ?? "Sin suscripción"}
         </p>
+        {!stripeConfigured ? (
+          <p className="mt-3 text-sm text-amber-600">
+            Stripe no esta configurado. Defini STRIPE_SECRET_KEY para habilitar
+            cobros.
+          </p>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           {(["STARTER", "PRO", "ENTERPRISE"] as PlanTier[]).map((plan) => (
             <form key={plan} action={createCheckout}>
               <input type="hidden" name="plan" value={plan} />
-              <Button size="sm" type="submit" variant="outline">
+              <Button
+                size="sm"
+                type="submit"
+                variant="outline"
+                disabled={!stripeConfigured}
+              >
                 {plan}
               </Button>
             </form>
           ))}
           {subscription?.stripeCustomerId ? (
             <form action={openPortal}>
-              <Button size="sm" type="submit">
+              <Button size="sm" type="submit" disabled={!stripeConfigured}>
                 Abrir portal Stripe
               </Button>
             </form>

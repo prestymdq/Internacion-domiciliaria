@@ -5,6 +5,8 @@ import { uploadEvidenceObject } from "@/lib/storage";
 import { logAudit } from "@/lib/audit";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import { withTenant } from "@/lib/rls";
+import { hasRole } from "@/lib/rbac";
+import { Role } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +20,15 @@ export async function POST(
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  if (
+    !hasRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.PROFESIONAL,
+    ])
+  ) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
   const accessResult = await withTenant(session.user.tenantId, async (db) => {

@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import { withTenant } from "@/lib/rls";
+import { hasRole } from "@/lib/rbac";
+import { Role } from "@prisma/client";
 
 const DEFAULT_RANGE_DAYS = 30;
 const VISIT_SLA_MINUTES = Number(process.env.VISIT_SLA_MINUTES ?? "30");
@@ -32,6 +34,15 @@ export async function GET(request: Request) {
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
     return new Response("UNAUTHORIZED", { status: 401 });
+  }
+  if (
+    !hasRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.AUDITOR,
+    ])
+  ) {
+    return new Response("FORBIDDEN", { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);

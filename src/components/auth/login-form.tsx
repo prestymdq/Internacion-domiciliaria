@@ -40,14 +40,24 @@ export default function LoginForm() {
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-medium">Email</label>
-        <Input name="email" type="email" required />
+        <Input name="email" type="email" required data-testid="login-email" />
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">Password</label>
-        <Input name="password" type="password" required />
+        <Input
+          name="password"
+          type="password"
+          required
+          data-testid="login-password"
+        />
       </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      <Button type="submit" className="w-full" disabled={loading}>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={loading}
+        data-testid="login-submit"
+      >
         {loading ? "Ingresando..." : "Ingresar"}
       </Button>
     </form>

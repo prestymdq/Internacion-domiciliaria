@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import { withTenant } from "@/lib/rls";
+import { hasRole } from "@/lib/rbac";
+import { Role } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +13,15 @@ export async function GET() {
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
     return new Response("UNAUTHORIZED", { status: 401 });
+  }
+  if (
+    !hasRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.AUDITOR,
+    ])
+  ) {
+    return new Response("FORBIDDEN", { status: 403 });
   }
 
   const metrics = await withTenant(tenantId, async (db) => {

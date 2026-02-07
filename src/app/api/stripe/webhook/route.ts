@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { PlanTier, Prisma, TenantStatus } from "@prisma/client";
 import { logAudit } from "@/lib/audit";
 import type Stripe from "stripe";
@@ -95,8 +95,9 @@ async function upsertSubscriptionFromStripe(
 export async function POST(request: Request) {
   const signature = (await headers()).get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+  const stripe = getStripe();
 
-  if (!signature || !webhookSecret) {
+  if (!signature || !webhookSecret || !stripe) {
     return new Response("Missing signature", { status: 400 });
   }
 

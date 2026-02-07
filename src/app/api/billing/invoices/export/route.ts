@@ -3,6 +3,8 @@ import { authOptions } from "@/lib/auth";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import PDFDocument from "pdfkit";
 import { withTenant } from "@/lib/rls";
+import { hasRole } from "@/lib/rbac";
+import { Role } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +14,15 @@ export async function GET(request: Request) {
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
     return new Response("UNAUTHORIZED", { status: 401 });
+  }
+  if (
+    !hasRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.FACTURACION,
+      Role.AUDITOR,
+    ])
+  ) {
+    return new Response("FORBIDDEN", { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
