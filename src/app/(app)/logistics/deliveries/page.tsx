@@ -14,6 +14,7 @@ import {
 } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 import { withTenant } from "@/lib/rls";
+import { uploadEvidenceObject } from "@/lib/storage";
 
 const transitSchema = z.object({
   deliveryId: z.string().min(1),
@@ -27,6 +28,89 @@ const deliveredSchema = z.object({
   receiverDni: z.string().min(4),
   receiverRelation: z.string().min(1),
 });
+
+async function uploadEvidence(formData: FormData) {
+  "use server";
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.tenantId) {
+    throw new Error("UNAUTHORIZED");
+  }
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.LOGISTICA,
+      Role.DEPOSITO,
+    ]);
+
+    const deliveryId = String(formData.get("deliveryId") ?? "");
+    const file = formData.get("file");
+    if (
+      !deliveryId ||
+      !file ||
+      typeof (file as Blob).arrayBuffer !== "function"
+    ) {
+      throw new Error("VALIDATION_ERROR");
+    }
+
+    const fileName =
+      typeof (file as { name?: string }).name === "string"
+        ? (file as { name: string }).name
+        : "evidence.bin";
+    const mimeType =
+      (file as { type?: string }).type || "application/octet-stream";
+
+    const delivery = await db.delivery.findFirst({
+      where: { id: deliveryId, tenantId: session.user.tenantId },
+    });
+    if (!delivery) {
+      throw new Error("NOT_FOUND");
+    }
+
+    const arrayBuffer = await (file as Blob).arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const key = `tenants/${session.user.tenantId}/deliveries/${delivery.deliveryNumber}/${Date.now()}-${safeName}`;
+
+    let uploaded: { key: string; url: string | undefined };
+    try {
+      uploaded = await uploadEvidenceObject({
+        key,
+        body: buffer,
+        contentType: mimeType,
+      });
+    } catch (error) {
+      if (process.env.NODE_ENV === "production") {
+        throw error;
+      }
+      uploaded = { key, url: undefined };
+    }
+
+    const created = await db.deliveryEvidence.create({
+      data: {
+        deliveryId: delivery.id,
+        fileKey: uploaded.key,
+        fileUrl: uploaded.url ?? null,
+        fileName,
+        mimeType,
+        size: buffer.length,
+        uploadedById: session.user.id,
+      },
+    });
+
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "delivery.evidence.upload",
+      entityType: "DeliveryEvidence",
+      entityId: created.id,
+      meta: { fileName: created.fileName },
+    });
+  });
+
+  revalidatePath("/logistics/deliveries");
+}
 
 async function markInTransit(formData: FormData) {
   "use server";
@@ -287,8 +371,7 @@ export default async function DeliveriesPage() {
 
               <div className="mt-3 grid gap-3 md:grid-cols-3">
                 <form
-                  action={`/api/deliveries/${delivery.id}/evidence`}
-                  method="post"
+                  action={uploadEvidence}
                   encType="multipart/form-data"
                   className="rounded-md border p-3"
                 >

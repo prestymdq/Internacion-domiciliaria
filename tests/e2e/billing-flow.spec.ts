@@ -142,23 +142,18 @@ test("billing flow end-to-end", async ({ page }) => {
   await expect(
     deliveryCard.getByRole("button", { name: "Subir evidencia" }),
   ).toBeVisible();
-  const evidenceForm = deliveryCard.locator('form[action^="/api/deliveries/"]');
-  const evidenceAction = await evidenceForm.getAttribute("action");
-  expect(evidenceAction).not.toBeNull();
-  await page.request.post(evidenceAction!, {
-    multipart: {
-      file: {
-        name: "evidence.txt",
-        mimeType: "text/plain",
-        buffer: Buffer.from("evidence"),
-      },
-    },
-  });
-  await page.reload();
-  const deliveryCardAfter = page
-    .locator("div.rounded-lg.border.p-4")
-    .filter({ hasText: `Paciente: ${lastName}` })
+  const evidenceForm = deliveryCard
+    .locator("form")
+    .filter({ has: deliveryCard.getByRole("button", { name: "Subir evidencia" }) })
     .first();
+  await evidenceForm.locator('input[type="file"]').setInputFiles({
+    name: "evidence.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("evidence"),
+  });
+  await evidenceForm.getByRole("button", { name: "Subir evidencia" }).click();
+  await expect(deliveryCard.getByText("Evidencia: 1")).toBeVisible();
+  const deliveryCardAfter = deliveryCard;
   await expect(
     deliveryCardAfter.getByPlaceholder("Retirante", { exact: true }),
   ).toBeVisible();

@@ -4,6 +4,8 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { promises as fs } from "fs";
+import path from "path";
 
 const s3 = new S3Client({
   region: process.env.S3_REGION ?? "us-east-1",
@@ -19,6 +21,9 @@ const s3 = new S3Client({
 
 const bucket = process.env.S3_BUCKET ?? "";
 const publicBaseUrl = process.env.S3_PUBLIC_URL ?? "";
+const localEvidenceDir =
+  process.env.LOCAL_EVIDENCE_DIR ??
+  path.join(process.cwd(), "storage", "evidence");
 
 async function ensureBucketExists() {
   try {
@@ -28,25 +33,44 @@ async function ensureBucketExists() {
   }
 }
 
+async function saveLocalEvidence(params: {
+  key: string;
+  body: Buffer;
+}): Promise<{ key: string; url: string | undefined }> {
+  const filePath = path.join(localEvidenceDir, ...params.key.split("/"));
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, params.body);
+  return { key: params.key, url: undefined };
+}
+
 export async function uploadEvidenceObject(params: {
   key: string;
   body: Buffer;
   contentType: string;
 }) {
   if (!bucket) {
-    throw new Error("S3_BUCKET is not configured");
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("S3_BUCKET is not configured");
+    }
+    return saveLocalEvidence(params);
   }
+  try {
+    await ensureBucketExists();
 
-  await ensureBucketExists();
-
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: params.key,
-      Body: params.body,
-      ContentType: params.contentType,
-    }),
-  );
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: params.key,
+        Body: params.body,
+        ContentType: params.contentType,
+      }),
+    );
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      return saveLocalEvidence(params);
+    }
+    throw error;
+  }
 
   const fileUrl = publicBaseUrl
     ? `${publicBaseUrl.replace(/\/$/, "")}/${bucket}/${params.key}`

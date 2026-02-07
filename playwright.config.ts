@@ -13,6 +13,7 @@ const webServer =
     : undefined;
 
 export default defineConfig({
+  workers: Number(process.env.E2E_WORKERS ?? "1"),
   testDir: "tests/e2e",
   timeout: 60000,
   expect: { timeout: 10000 },
