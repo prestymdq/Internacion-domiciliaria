@@ -134,6 +134,10 @@ model Tenant {
   authorizationRequirements AuthorizationRequirement[]
   visits       Visit[]
   clinicalNotes ClinicalNote[]
+  episodeCarePlans EpisodeCarePlan[]
+  episodeWorkflowStages EpisodeWorkflowStage[]
+  visitChecklistItems VisitChecklistItem[]
+  clinicalAttachments ClinicalAttachment[]
   subscription TenantSubscription?
   policy       TenantPolicy?
   invoices     Invoice[]
@@ -167,6 +171,8 @@ model User {
   visitsAssigned Visit[] @relation("VisitAssignedUser")
   visitsCreated Visit[] @relation("VisitCreatedBy")
   clinicalNotesAuthored ClinicalNote[] @relation("ClinicalNoteAuthor")
+  visitChecklistCompleted VisitChecklistItem[] @relation("VisitChecklistCompletedBy")
+  clinicalAttachmentsUploaded ClinicalAttachment[] @relation("ClinicalAttachmentUploadedBy")
   authorizationRequirementUploads AuthorizationRequirement[] @relation("AuthorizationRequirementUploadedBy")
   invoicesCreated Invoice[] @relation("InvoiceCreatedBy")
   debitNotesCreated DebitNote[] @relation("DebitNoteCreatedBy")
@@ -239,6 +245,7 @@ model Patient {
   approvedOrders ApprovedOrder[]
   visits     Visit[]
   clinicalNotes ClinicalNote[]
+  clinicalAttachments ClinicalAttachment[]
   authorizations Authorization[]
   invoices Invoice[]
 
@@ -253,6 +260,8 @@ model Episode {
   patientId  String
   patient    Patient       @relation(fields: [patientId], references: [id])
   status     EpisodeStatus @default(ACTIVE)
+  workflowStageId String?
+  workflowStage EpisodeWorkflowStage? @relation(fields: [workflowStageId], references: [id])
   startDate  DateTime
   endDate    DateTime?
   diagnosis  String?
@@ -262,6 +271,7 @@ model Episode {
 
   visits       Visit[]
   clinicalNotes ClinicalNote[]
+  carePlan    EpisodeCarePlan?
   authorizations Authorization[]
 
   @@index([tenantId, patientId])
@@ -300,6 +310,7 @@ model Warehouse {
   updatedAt DateTime @updatedAt
 
   stockMovements StockMovement[]
+  visitItems  VisitItem[]
 
   @@unique([tenantId, name])
 }
@@ -727,6 +738,8 @@ model Visit {
 
   clinicalNotes ClinicalNote[]
   items         VisitItem[]
+  checklistItems VisitChecklistItem[]
+  attachments  ClinicalAttachment[]
 
   @@index([tenantId, scheduledAt])
   @@index([tenantId, status])
@@ -745,6 +758,7 @@ model ClinicalNote {
   authorId  String
   author    User     @relation("ClinicalNoteAuthor", fields: [authorId], references: [id])
   content   String
+  structured Json?
   createdAt DateTime @default(now())
 
   @@index([tenantId, patientId])
@@ -756,8 +770,82 @@ model VisitItem {
   visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   productId String
   product   Product  @relation(fields: [productId], references: [id])
+  warehouseId String?
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id])
   quantity  Int
   createdAt DateTime @default(now())
+}
+
+model EpisodeCarePlan {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  episodeId String   @unique
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  summary   String?
+  frequency String?
+  objectives Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, episodeId])
+}
+
+model EpisodeWorkflowStage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  sortOrder Int      @default(0)
+  isTerminal Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  episodes  Episode[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, sortOrder])
+}
+
+model VisitChecklistItem {
+  id           String   @id @default(cuid())
+  visitId      String
+  visit        Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  key          String
+  label        String
+  isRequired   Boolean  @default(true)
+  isCompleted  Boolean  @default(false)
+  notes        String?
+  completedAt  DateTime?
+  completedById String?
+  completedBy  User?    @relation("VisitChecklistCompletedBy", fields: [completedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([visitId])
+}
+
+model ClinicalAttachment {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id])
+  episodeId   String?
+  episode     Episode? @relation(fields: [episodeId], references: [id])
+  visitId     String?
+  visit       Visit?   @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  noteId      String?
+  note        ClinicalNote? @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  fileKey     String
+  fileUrl     String?
+  fileName    String
+  mimeType    String
+  size        Int
+  uploadedById String?
+  uploadedBy  User?    @relation("ClinicalAttachmentUploadedBy", fields: [uploadedById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, patientId])
+  @@index([visitId])
 }
 
 model AuditLog {

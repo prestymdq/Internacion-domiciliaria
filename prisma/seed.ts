@@ -57,6 +57,21 @@ async function main() {
       },
     });
 
+    const existingStages = await db.episodeWorkflowStage.findMany({
+      where: { tenantId: tenant.id },
+    });
+
+    if (existingStages.length === 0) {
+      await db.episodeWorkflowStage.createMany({
+        data: [
+          { tenantId: tenant.id, name: "Ingreso", sortOrder: 0 },
+          { tenantId: tenant.id, name: "Plan de cuidado", sortOrder: 10 },
+          { tenantId: tenant.id, name: "Seguimiento", sortOrder: 20 },
+          { tenantId: tenant.id, name: "Egreso", sortOrder: 90, isTerminal: true },
+        ],
+      });
+    }
+
     await db.billingTemplate.upsert({
       where: {
         tenantId_name: {
