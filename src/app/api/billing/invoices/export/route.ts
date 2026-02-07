@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import PDFDocument from "pdfkit";
+import { withTenant } from "@/lib/rls";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,24 +14,30 @@ export async function GET(request: Request) {
     return new Response("UNAUTHORIZED", { status: 401 });
   }
 
-  const access = await getTenantModuleAccess(tenantId, "BILLING");
-  if (!access.allowed) {
-    return new Response("FORBIDDEN", { status: 403 });
-  }
-
   const { searchParams } = new URL(request.url);
   const payerId = searchParams.get("payerId") ?? undefined;
   const format = searchParams.get("format") ?? "csv";
 
-  const invoices = await prisma.invoice.findMany({
-    where: { tenantId, payerId },
-    include: {
-      payer: true,
-      patient: true,
-      items: { include: { product: true } },
-    },
-    orderBy: { issuedAt: "desc" },
+  const invoices = await withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "BILLING");
+    if (!access.allowed) {
+      return null;
+    }
+
+    return db.invoice.findMany({
+      where: { tenantId, payerId },
+      include: {
+        payer: true,
+        patient: true,
+        items: { include: { product: true } },
+      },
+      orderBy: { issuedAt: "desc" },
+    });
   });
+
+  if (!invoices) {
+    return new Response("FORBIDDEN", { status: 403 });
+  }
 
   if (format === "pdf") {
     const doc = new PDFDocument({ size: "A4", margin: 40 });

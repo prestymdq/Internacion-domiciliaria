@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 export default async function KpisPage() {
   const session = await getServerSession(authOptions);
@@ -11,32 +11,32 @@ export default async function KpisPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "ANALYTICS");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "ANALYTICS");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [visitGroups, users, incidentGroups] = await Promise.all([
-    prisma.visit.groupBy({
+    const visitGroups = await db.visit.groupBy({
       by: ["assignedUserId", "status"],
       where: { tenantId, assignedUserId: { not: null } },
       _count: { _all: true },
-    }),
-    prisma.user.findMany({
+    });
+    const users = await db.user.findMany({
       where: { tenantId, isActive: true },
       orderBy: { name: "asc" },
-    }),
-    prisma.incident.groupBy({
+    });
+    const incidentGroups = await db.incident.groupBy({
       by: ["cause"],
       where: { tenantId },
       _count: { _all: true },
-    }),
-  ]);
+    });
 
-  const userMap = new Map(users.map((user) => [user.id, user]));
+    const userMap = new Map(users.map((user) => [user.id, user]));
 
-  const compliance = visitGroups.reduce<Record<string, { total: number; completed: number }>>(
-    (acc, row) => {
+    const compliance = visitGroups.reduce<
+      Record<string, { total: number; completed: number }>
+    >((acc, row) => {
       const userId = row.assignedUserId ?? "unassigned";
       if (!acc[userId]) {
         acc[userId] = { total: 0, completed: 0 };
@@ -46,11 +46,9 @@ export default async function KpisPage() {
         acc[userId].completed += row._count._all;
       }
       return acc;
-    },
-    {},
-  );
+    }, {});
 
-  return (
+    return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold">KPIs</h1>
@@ -121,5 +119,6 @@ export default async function KpisPage() {
         </div>
       </section>
     </div>
-  );
+    );
+  });
 }

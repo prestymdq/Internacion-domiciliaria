@@ -1,12 +1,12 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
 import { assertTenantModuleAccess } from "@/lib/tenant-access";
 import { PlanTier } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { withTenant } from "@/lib/rls";
 
 const priceMap: Record<PlanTier, string> = {
   STARTER: process.env.STRIPE_PRICE_STARTER ?? "",
@@ -28,21 +28,29 @@ async function createCheckout(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "BILLING");
-
   const plan = formData.get("plan") as PlanTier;
   const priceId = priceMap[plan];
   if (!priceId) {
     throw new Error("PRICE_NOT_CONFIGURED");
   }
 
-  const [tenant, users, subscription] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: session.user.tenantId } }),
-    prisma.user.count({ where: { tenantId: session.user.tenantId, isActive: true } }),
-    prisma.tenantSubscription.findUnique({
-      where: { tenantId: session.user.tenantId },
-    }),
-  ]);
+  const { tenant, users, subscription } = await withTenant(
+    session.user.tenantId,
+    async (db) => {
+      await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
+
+      const tenant = await db.tenant.findUnique({
+        where: { id: session.user.tenantId },
+      });
+      const users = await db.user.count({
+        where: { tenantId: session.user.tenantId, isActive: true },
+      });
+      const subscription = await db.tenantSubscription.findUnique({
+        where: { tenantId: session.user.tenantId },
+      });
+      return { tenant, users, subscription };
+    },
+  );
 
   if (!tenant) {
     throw new Error("TENANT_NOT_FOUND");
@@ -58,10 +66,13 @@ async function createCheckout(formData: FormData) {
       metadata: { tenantId: tenant.id },
     });
     stripeCustomerId = customer.id;
-    await prisma.tenantSubscription.upsert({
-      where: { tenantId: tenant.id },
-      update: { stripeCustomerId },
-      create: { tenantId: tenant.id, stripeCustomerId },
+    await withTenant(session.user.tenantId, async (db) => {
+      await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
+      await db.tenantSubscription.upsert({
+        where: { tenantId: tenant.id },
+        update: { stripeCustomerId },
+        create: { tenantId: tenant.id, stripeCustomerId },
+      });
     });
   }
 
@@ -96,10 +107,11 @@ async function openPortal() {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "BILLING");
-
-  const subscription = await prisma.tenantSubscription.findUnique({
-    where: { tenantId: session.user.tenantId },
+  const subscription = await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
+    return db.tenantSubscription.findUnique({
+      where: { tenantId: session.user.tenantId },
+    });
   });
 
   if (!subscription?.stripeCustomerId) {
@@ -121,19 +133,21 @@ async function updatePastDuePolicy(formData: FormData) {
   if (!session?.user?.tenantId) {
     throw new Error("UNAUTHORIZED");
   }
-  await assertTenantModuleAccess(session.user.tenantId, "BILLING");
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
 
-  const blocked = moduleOptions
-    .filter((option) => formData.get(option.key) === "on")
-    .map((option) => option.key);
+    const blocked = moduleOptions
+      .filter((option) => formData.get(option.key) === "on")
+      .map((option) => option.key);
 
-  await prisma.tenantPolicy.upsert({
-    where: { tenantId: session.user.tenantId },
-    update: { pastDueBlockedModules: blocked },
-    create: {
-      tenantId: session.user.tenantId,
-      pastDueBlockedModules: blocked,
-    },
+    await db.tenantPolicy.upsert({
+      where: { tenantId: session.user.tenantId },
+      update: { pastDueBlockedModules: blocked },
+      create: {
+        tenantId: session.user.tenantId,
+        pastDueBlockedModules: blocked,
+      },
+    });
   });
 }
 
@@ -150,20 +164,26 @@ export default async function BillingPage() {
     );
   }
 
-  const [tenant, subscription, activeUsers, policy] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: session.user.tenantId } }),
-    prisma.tenantSubscription.findUnique({
-      where: { tenantId: session.user.tenantId },
-    }),
-    prisma.user.count({ where: { tenantId: session.user.tenantId, isActive: true } }),
-    prisma.tenantPolicy.findUnique({
-      where: { tenantId: session.user.tenantId },
-    }),
-  ]);
+  return withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
 
-  const blockedModules = (policy?.pastDueBlockedModules as string[] | null) ?? [];
+    const tenant = await db.tenant.findUnique({
+      where: { id: session.user.tenantId },
+    });
+    const subscription = await db.tenantSubscription.findUnique({
+      where: { tenantId: session.user.tenantId },
+    });
+    const activeUsers = await db.user.count({
+      where: { tenantId: session.user.tenantId, isActive: true },
+    });
+    const policy = await db.tenantPolicy.findUnique({
+      where: { tenantId: session.user.tenantId },
+    });
 
-  return (
+    const blockedModules =
+      (policy?.pastDueBlockedModules as string[] | null) ?? [];
+
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Billing</h1>
@@ -240,5 +260,6 @@ export default async function BillingPage() {
         </form>
       </div>
     </div>
-  );
+    );
+  });
 }

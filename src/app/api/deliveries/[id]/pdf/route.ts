@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import PDFDocument from "pdfkit";
+import { withTenant } from "@/lib/rls";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,22 +16,36 @@ export async function GET(
     return new Response("UNAUTHORIZED", { status: 401 });
   }
 
-  const access = await getTenantModuleAccess(session.user.tenantId, "LOGISTICS");
-  if (!access.allowed) {
+  const result = await withTenant(session.user.tenantId, async (db) => {
+    const access = await getTenantModuleAccess(
+      db,
+      session.user.tenantId,
+      "LOGISTICS",
+    );
+    if (!access.allowed) {
+      return { forbidden: true as const };
+    }
+
+    const delivery = await db.delivery.findFirst({
+      where: { id: params.id, tenantId: session.user.tenantId },
+      include: {
+        approvedOrder: { include: { patient: true } },
+        pickList: { include: { items: { include: { product: true } } } },
+      },
+    });
+
+    return { delivery };
+  });
+
+  if (result.forbidden) {
     return new Response("FORBIDDEN", { status: 403 });
   }
 
-  const delivery = await prisma.delivery.findFirst({
-    where: { id: params.id, tenantId: session.user.tenantId },
-    include: {
-      approvedOrder: { include: { patient: true } },
-      pickList: { include: { items: { include: { product: true } } } },
-    },
-  });
-
-  if (!delivery) {
+  if (!result.delivery) {
     return new Response("NOT_FOUND", { status: 404 });
   }
+
+  const { delivery } = result;
 
   const doc = new PDFDocument({ size: "A4", margin: 40 });
   const chunks: Uint8Array[] = [];

@@ -2,7 +2,6 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
@@ -12,6 +11,7 @@ import { Role } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 const invoiceSchema = z.object({
   deliveryId: z.string().min(1),
@@ -24,91 +24,96 @@ async function createInvoice(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
-  await assertTenantModuleAccess(session.user.tenantId, "BILLING");
-  assertRole(session.user.role, [Role.ADMIN_TENANT, Role.FACTURACION]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
+    assertRole(session.user.role, [Role.ADMIN_TENANT, Role.FACTURACION]);
 
-  const parsed = invoiceSchema.safeParse({
-    deliveryId: formData.get("deliveryId"),
-    payerId: formData.get("payerId"),
-    dueDate: formData.get("dueDate"),
-    notes: formData.get("notes"),
-  });
+    const parsed = invoiceSchema.safeParse({
+      deliveryId: formData.get("deliveryId"),
+      payerId: formData.get("payerId"),
+      dueDate: formData.get("dueDate"),
+      notes: formData.get("notes"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const delivery = await prisma.delivery.findFirst({
-    where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
-    include: {
-      approvedOrder: { include: { patient: true } },
-      pickList: { include: { items: { include: { product: true } } } },
-      evidence: true,
-    },
-  });
-
-  if (!delivery) {
-    throw new Error("DELIVERY_NOT_FOUND");
-  }
-
-  if (!["DELIVERED", "CLOSED"].includes(delivery.status)) {
-    throw new Error("DELIVERY_NOT_READY");
-  }
-
-  const minEvidence = Number(process.env.DELIVERY_MIN_EVIDENCE ?? "1");
-  if (delivery.evidence.length < minEvidence) {
-    throw new Error("EVIDENCE_REQUIRED");
-  }
-
-  const existingItem = await prisma.invoiceItem.findFirst({
-    where: { deliveryId: delivery.id },
-  });
-  if (existingItem) {
-    throw new Error("DELIVERY_ALREADY_INVOICED");
-  }
-
-  const invoiceNumber = await nextInvoiceNumber(session.user.tenantId);
-
-  const items = delivery.pickList.items.map((item) => {
-    const priceRaw = formData.get(`price_${item.id}`);
-    const unitPrice = Number(priceRaw ?? 0);
-    const total = unitPrice * item.pickedQty;
-    return {
-      deliveryId: delivery.id,
-      productId: item.productId,
-      description: item.product.name,
-      quantity: item.pickedQty,
-      unitPrice,
-      total,
-      evidenceCount: delivery.evidence.length,
-      evidenceMeta: {
-        evidenceIds: delivery.evidence.map((evidence) => evidence.id),
+    const delivery = await db.delivery.findFirst({
+      where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+      include: {
+        approvedOrder: { include: { patient: true } },
+        pickList: { include: { items: { include: { product: true } } } },
+        evidence: true,
       },
-    };
-  });
+    });
 
-  const invoice = await prisma.invoice.create({
-    data: {
+    if (!delivery) {
+      throw new Error("DELIVERY_NOT_FOUND");
+    }
+
+    if (!["DELIVERED", "CLOSED"].includes(delivery.status)) {
+      throw new Error("DELIVERY_NOT_READY");
+    }
+
+    const minEvidence = Number(process.env.DELIVERY_MIN_EVIDENCE ?? "1");
+    if (delivery.evidence.length < minEvidence) {
+      throw new Error("EVIDENCE_REQUIRED");
+    }
+
+    const existingItem = await db.invoiceItem.findFirst({
+      where: { deliveryId: delivery.id },
+    });
+    if (existingItem) {
+      throw new Error("DELIVERY_ALREADY_INVOICED");
+    }
+
+    const invoiceNumber = await nextInvoiceNumber(
+      db,
+      session.user.tenantId,
+    );
+
+    const items = delivery.pickList.items.map((item) => {
+      const priceRaw = formData.get(`price_${item.id}`);
+      const unitPrice = Number(priceRaw ?? 0);
+      const total = unitPrice * item.pickedQty;
+      return {
+        deliveryId: delivery.id,
+        productId: item.productId,
+        description: item.product.name,
+        quantity: item.pickedQty,
+        unitPrice,
+        total,
+        evidenceCount: delivery.evidence.length,
+        evidenceMeta: {
+          evidenceIds: delivery.evidence.map((evidence) => evidence.id),
+        },
+      };
+    });
+
+    const invoice = await db.invoice.create({
+      data: {
+        tenantId: session.user.tenantId,
+        payerId: parsed.data.payerId,
+        patientId: delivery.approvedOrder.patientId,
+        invoiceNumber,
+        dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
+        notes: parsed.data.notes ?? null,
+        createdById: session.user.id,
+        items: { create: items },
+      },
+    });
+
+    await recalcInvoiceStatus(db, invoice.id);
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      payerId: parsed.data.payerId,
-      patientId: delivery.approvedOrder.patientId,
-      invoiceNumber,
-      dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
-      notes: parsed.data.notes ?? null,
-      createdById: session.user.id,
-      items: { create: items },
-    },
-  });
-
-  await recalcInvoiceStatus(invoice.id);
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "invoice.create",
-    entityType: "Invoice",
-    entityId: invoice.id,
-    meta: { invoiceNumber },
+      actorId: session.user.id,
+      action: "invoice.create",
+      entityType: "Invoice",
+      entityId: invoice.id,
+      meta: { invoiceNumber },
+    });
   });
 
   revalidatePath("/billing/invoices");
@@ -121,14 +126,17 @@ export default async function InvoicesPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "BILLING");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "BILLING");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [payers, deliveries, invoices] = await Promise.all([
-    prisma.payer.findMany({ where: { tenantId }, orderBy: { name: "asc" } }),
-    prisma.delivery.findMany({
+    const payers = await db.payer.findMany({
+      where: { tenantId },
+      orderBy: { name: "asc" },
+    });
+    const deliveries = await db.delivery.findMany({
       where: { tenantId, status: { in: ["DELIVERED", "CLOSED"] } },
       include: {
         approvedOrder: { include: { patient: true } },
@@ -137,15 +145,14 @@ export default async function InvoicesPage() {
       },
       orderBy: { createdAt: "desc" },
       take: 20,
-    }),
-    prisma.invoice.findMany({
+    });
+    const invoices = await db.invoice.findMany({
       where: { tenantId },
       include: { payer: true, patient: true },
       orderBy: { createdAt: "desc" },
-    }),
-  ]);
+    });
 
-  return (
+    return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold">Facturas</h1>
@@ -315,5 +322,6 @@ export default async function InvoicesPage() {
         </div>
       </section>
     </div>
-  );
+    );
+  });
 }

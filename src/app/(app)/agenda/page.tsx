@@ -329,26 +329,26 @@ export default async function AgendaPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "CLINIC");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "CLINIC");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [episodes, users, products, visits] = await Promise.all([
-    prisma.episode.findMany({
+    const episodes = await db.episode.findMany({
       where: { tenantId, status: "ACTIVE" },
       include: { patient: true },
       orderBy: { startDate: "desc" },
-    }),
-    prisma.user.findMany({
+    });
+    const users = await db.user.findMany({
       where: { tenantId, isActive: true },
       orderBy: { name: "asc" },
-    }),
-    prisma.product.findMany({
+    });
+    const products = await db.product.findMany({
       where: { tenantId },
       orderBy: { name: "asc" },
-    }),
-    prisma.visit.findMany({
+    });
+    const visits = await db.visit.findMany({
       where: { tenantId },
       include: {
         patient: true,
@@ -358,10 +358,9 @@ export default async function AgendaPage() {
       },
       orderBy: { scheduledAt: "desc" },
       take: 50,
-    }),
-  ]);
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Agenda</h1>
@@ -506,5 +505,6 @@ export default async function AgendaPage() {
         ) : null}
       </div>
     </div>
-  );
+    );
+  });
 }

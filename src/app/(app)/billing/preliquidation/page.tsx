@@ -1,10 +1,10 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 export default async function PreLiquidationPage() {
   const session = await getServerSession(authOptions);
@@ -13,47 +13,48 @@ export default async function PreLiquidationPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "BILLING");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "BILLING");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const deliveries = await prisma.delivery.findMany({
-    where: { tenantId },
-    include: {
-      approvedOrder: { include: { patient: true } },
-      pickList: { include: { items: true } },
-      evidence: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    const deliveries = await db.delivery.findMany({
+      where: { tenantId },
+      include: {
+        approvedOrder: { include: { patient: true } },
+        pickList: { include: { items: true } },
+        evidence: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  const rows = deliveries.map((delivery) => {
-    const authorized = delivery.pickList.items.reduce(
-      (sum, item) => sum + item.requestedQty,
-      0,
-    );
-    const realized = delivery.pickList.items.reduce(
-      (sum, item) => sum + item.pickedQty,
-      0,
-    );
-    const evidenced = delivery.evidence.length > 0;
+    const rows = deliveries.map((delivery) => {
+      const authorized = delivery.pickList.items.reduce(
+        (sum, item) => sum + item.requestedQty,
+        0,
+      );
+      const realized = delivery.pickList.items.reduce(
+        (sum, item) => sum + item.pickedQty,
+        0,
+      );
+      const evidenced = delivery.evidence.length > 0;
 
-    return {
-      deliveryNumber: delivery.deliveryNumber,
-      patient: `${delivery.approvedOrder.patient.lastName}, ${delivery.approvedOrder.patient.firstName}`,
-      status: delivery.status,
-      deliveredAt: delivery.deliveredAt
-        ? delivery.deliveredAt.toLocaleDateString("es-AR")
-        : "-",
-      authorized,
-      realized,
-      evidenced: evidenced ? "SI" : "NO",
-      evidenceCount: delivery.evidence.length,
-    };
-  });
+      return {
+        deliveryNumber: delivery.deliveryNumber,
+        patient: `${delivery.approvedOrder.patient.lastName}, ${delivery.approvedOrder.patient.firstName}`,
+        status: delivery.status,
+        deliveredAt: delivery.deliveredAt
+          ? delivery.deliveredAt.toLocaleDateString("es-AR")
+          : "-",
+        authorized,
+        realized,
+        evidenced: evidenced ? "SI" : "NO",
+        evidenceCount: delivery.evidence.length,
+      };
+    });
 
-  return (
+    return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -108,5 +109,6 @@ export default async function PreLiquidationPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }

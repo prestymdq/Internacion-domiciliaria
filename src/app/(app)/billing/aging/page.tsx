@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { getTenantModuleAccess } from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
+import { withTenant } from "@/lib/rls";
 
 function daysBetween(from: Date, to: Date) {
   const diff = to.getTime() - from.getTime();
@@ -16,58 +16,59 @@ export default async function AgingPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "BILLING");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
-
-  const invoices = await prisma.invoice.findMany({
-    where: { tenantId },
-    include: { debitNotes: true, payments: true, payer: true },
-    orderBy: { issuedAt: "desc" },
-  });
-
-  const today = new Date();
-  const buckets = {
-    "0-30": 0,
-    "31-60": 0,
-    "61-90": 0,
-    "90+": 0,
-  };
-
-  const rows = invoices.map((invoice) => {
-    const debits = invoice.debitNotes.reduce(
-      (sum, debit) => sum + debit.amount,
-      0,
-    );
-    const payments = invoice.payments.reduce(
-      (sum, payment) => sum + payment.amount,
-      0,
-    );
-    const balance = Math.max(invoice.totalAmount - debits - payments, 0);
-    const baseDate = invoice.dueDate ?? invoice.issuedAt;
-    const age = daysBetween(baseDate, today);
-
-    if (balance > 0) {
-      if (age <= 30) buckets["0-30"] += balance;
-      else if (age <= 60) buckets["31-60"] += balance;
-      else if (age <= 90) buckets["61-90"] += balance;
-      else buckets["90+"] += balance;
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "BILLING");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
     }
 
-    return {
-      invoiceNumber: invoice.invoiceNumber,
-      payer: invoice.payer.name,
-      issuedAt: invoice.issuedAt.toLocaleDateString("es-AR"),
-      dueDate: invoice.dueDate
-        ? invoice.dueDate.toLocaleDateString("es-AR")
-        : "-",
-      balance,
-      age,
-    };
-  });
+    const invoices = await db.invoice.findMany({
+      where: { tenantId },
+      include: { debitNotes: true, payments: true, payer: true },
+      orderBy: { issuedAt: "desc" },
+    });
 
-  return (
+    const today = new Date();
+    const buckets = {
+      "0-30": 0,
+      "31-60": 0,
+      "61-90": 0,
+      "90+": 0,
+    };
+
+    const rows = invoices.map((invoice) => {
+      const debits = invoice.debitNotes.reduce(
+        (sum, debit) => sum + debit.amount,
+        0,
+      );
+      const payments = invoice.payments.reduce(
+        (sum, payment) => sum + payment.amount,
+        0,
+      );
+      const balance = Math.max(invoice.totalAmount - debits - payments, 0);
+      const baseDate = invoice.dueDate ?? invoice.issuedAt;
+      const age = daysBetween(baseDate, today);
+
+      if (balance > 0) {
+        if (age <= 30) buckets["0-30"] += balance;
+        else if (age <= 60) buckets["31-60"] += balance;
+        else if (age <= 90) buckets["61-90"] += balance;
+        else buckets["90+"] += balance;
+      }
+
+      return {
+        invoiceNumber: invoice.invoiceNumber,
+        payer: invoice.payer.name,
+        issuedAt: invoice.issuedAt.toLocaleDateString("es-AR"),
+        dueDate: invoice.dueDate
+          ? invoice.dueDate.toLocaleDateString("es-AR")
+          : "-",
+        balance,
+        age,
+      };
+    });
+
+    return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Aging</h1>
@@ -122,5 +123,6 @@ export default async function AgingPage() {
         </table>
       </div>
     </div>
-  );
+    );
+  });
 }

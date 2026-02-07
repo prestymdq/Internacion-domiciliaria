@@ -2,15 +2,18 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role, AuthorizationStatus } from "@prisma/client";
-import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import AccessDenied from "@/components/app/access-denied";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { withTenant } from "@/lib/rls";
 
 const authorizationSchema = z.object({
   payerId: z.string().min(1),
@@ -29,64 +32,68 @@ async function createAuthorization(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
-  await assertTenantModuleAccess(session.user.tenantId, "AUTHORIZATIONS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.FACTURACION,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "AUTHORIZATIONS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.FACTURACION,
+    ]);
 
-  const parsed = authorizationSchema.safeParse({
-    payerId: formData.get("payerId"),
-    planId: formData.get("planId"),
-    patientId: formData.get("patientId"),
-    episodeId: formData.get("episodeId"),
-    number: formData.get("number"),
-    startDate: formData.get("startDate"),
-    endDate: formData.get("endDate"),
-    limitAmount: formData.get("limitAmount"),
-    limitUnits: formData.get("limitUnits"),
-    notes: formData.get("notes"),
-  });
+    const parsed = authorizationSchema.safeParse({
+      payerId: formData.get("payerId"),
+      planId: formData.get("planId"),
+      patientId: formData.get("patientId"),
+      episodeId: formData.get("episodeId"),
+      number: formData.get("number"),
+      startDate: formData.get("startDate"),
+      endDate: formData.get("endDate"),
+      limitAmount: formData.get("limitAmount"),
+      limitUnits: formData.get("limitUnits"),
+      notes: formData.get("notes"),
+    });
 
-  if (!parsed.success) throw new Error("VALIDATION_ERROR");
+    if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
-  const requirements = await prisma.payerRequirement.findMany({
-    where: { tenantId: session.user.tenantId, payerId: parsed.data.payerId },
-  });
+    const requirements = await db.payerRequirement.findMany({
+      where: { tenantId: session.user.tenantId, payerId: parsed.data.payerId },
+    });
 
-  const authorization = await prisma.authorization.create({
-    data: {
-      tenantId: session.user.tenantId,
-      payerId: parsed.data.payerId,
-      planId: parsed.data.planId || null,
-      patientId: parsed.data.patientId,
-      episodeId: parsed.data.episodeId || null,
-      number: parsed.data.number,
-      status: AuthorizationStatus.PENDING,
-      startDate: new Date(parsed.data.startDate),
-      endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
-      limitAmount: parsed.data.limitAmount
-        ? Number(parsed.data.limitAmount)
-        : null,
-      limitUnits: parsed.data.limitUnits ? Number(parsed.data.limitUnits) : null,
-      notes: parsed.data.notes ?? null,
-      requirements: {
-        create: requirements.map((req) => ({
-          tenantId: session.user.tenantId,
-          requirementId: req.id,
-          status: "PENDING",
-        })),
+    const authorization = await db.authorization.create({
+      data: {
+        tenantId: session.user.tenantId,
+        payerId: parsed.data.payerId,
+        planId: parsed.data.planId || null,
+        patientId: parsed.data.patientId,
+        episodeId: parsed.data.episodeId || null,
+        number: parsed.data.number,
+        status: AuthorizationStatus.PENDING,
+        startDate: new Date(parsed.data.startDate),
+        endDate: parsed.data.endDate ? new Date(parsed.data.endDate) : null,
+        limitAmount: parsed.data.limitAmount
+          ? Number(parsed.data.limitAmount)
+          : null,
+        limitUnits: parsed.data.limitUnits
+          ? Number(parsed.data.limitUnits)
+          : null,
+        notes: parsed.data.notes ?? null,
+        requirements: {
+          create: requirements.map((req) => ({
+            tenantId: session.user.tenantId,
+            requirementId: req.id,
+            status: "PENDING",
+          })),
+        },
       },
-    },
-  });
+    });
 
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "authorization.create",
-    entityType: "Authorization",
-    entityId: authorization.id,
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "authorization.create",
+      entityType: "Authorization",
+      entityId: authorization.id,
+    });
   });
 
   revalidatePath("/authorizations");
@@ -99,43 +106,43 @@ export default async function AuthorizationsPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "AUTHORIZATIONS");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "AUTHORIZATIONS");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const [payers, plans, patients, episodes, authorizations] = await Promise.all(
-    [
-      prisma.payer.findMany({ where: { tenantId }, orderBy: { name: "asc" } }),
-      prisma.payerPlan.findMany({
-        where: { tenantId },
-        include: { payer: true },
-        orderBy: { name: "asc" },
-      }),
-      prisma.patient.findMany({
-        where: { tenantId },
-        orderBy: { lastName: "asc" },
-      }),
-      prisma.episode.findMany({
-        where: { tenantId, status: "ACTIVE" },
-        include: { patient: true },
-        orderBy: { startDate: "desc" },
-      }),
-      prisma.authorization.findMany({
-        where: { tenantId },
-        include: {
-          payer: true,
-          plan: true,
-          patient: true,
-          episode: true,
-          requirements: { include: { requirement: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      }),
-    ],
-  );
+    const payers = await db.payer.findMany({
+      where: { tenantId },
+      orderBy: { name: "asc" },
+    });
+    const plans = await db.payerPlan.findMany({
+      where: { tenantId },
+      include: { payer: true },
+      orderBy: { name: "asc" },
+    });
+    const patients = await db.patient.findMany({
+      where: { tenantId },
+      orderBy: { lastName: "asc" },
+    });
+    const episodes = await db.episode.findMany({
+      where: { tenantId, status: "ACTIVE" },
+      include: { patient: true },
+      orderBy: { startDate: "desc" },
+    });
+    const authorizations = await db.authorization.findMany({
+      where: { tenantId },
+      include: {
+        payer: true,
+        plan: true,
+        patient: true,
+        episode: true,
+        requirements: { include: { requirement: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold">Autorizaciones</h1>
@@ -266,5 +273,6 @@ export default async function AuthorizationsPage() {
         ) : null}
       </div>
     </div>
-  );
+    );
+  });
 }

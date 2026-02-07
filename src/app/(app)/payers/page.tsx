@@ -2,7 +2,6 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { Role } from "@prisma/client";
@@ -10,6 +9,7 @@ import { assertTenantModuleAccess, getTenantModuleAccess } from "@/lib/tenant-ac
 import AccessDenied from "@/components/app/access-denied";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { withTenant } from "@/lib/rls";
 
 const payerSchema = z.object({
   name: z.string().min(1),
@@ -31,33 +31,35 @@ async function createPayer(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
-  await assertTenantModuleAccess(session.user.tenantId, "PAYERS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.FACTURACION,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "PAYERS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.FACTURACION,
+    ]);
 
-  const parsed = payerSchema.safeParse({
-    name: formData.get("name"),
-    code: formData.get("code"),
-  });
-  if (!parsed.success) throw new Error("VALIDATION_ERROR");
+    const parsed = payerSchema.safeParse({
+      name: formData.get("name"),
+      code: formData.get("code"),
+    });
+    if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
-  const payer = await prisma.payer.create({
-    data: {
+    const payer = await db.payer.create({
+      data: {
+        tenantId: session.user.tenantId,
+        name: parsed.data.name,
+        code: parsed.data.code ?? null,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      name: parsed.data.name,
-      code: parsed.data.code ?? null,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "payer.create",
-    entityType: "Payer",
-    entityId: payer.id,
+      actorId: session.user.id,
+      action: "payer.create",
+      entityType: "Payer",
+      entityId: payer.id,
+    });
   });
 
   revalidatePath("/payers");
@@ -67,33 +69,35 @@ async function createPlan(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
-  await assertTenantModuleAccess(session.user.tenantId, "PAYERS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.FACTURACION,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "PAYERS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.FACTURACION,
+    ]);
 
-  const parsed = planSchema.safeParse({
-    payerId: formData.get("payerId"),
-    name: formData.get("name"),
-  });
-  if (!parsed.success) throw new Error("VALIDATION_ERROR");
+    const parsed = planSchema.safeParse({
+      payerId: formData.get("payerId"),
+      name: formData.get("name"),
+    });
+    if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
-  const plan = await prisma.payerPlan.create({
-    data: {
+    const plan = await db.payerPlan.create({
+      data: {
+        tenantId: session.user.tenantId,
+        payerId: parsed.data.payerId,
+        name: parsed.data.name,
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      payerId: parsed.data.payerId,
-      name: parsed.data.name,
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "payer.plan.create",
-    entityType: "PayerPlan",
-    entityId: plan.id,
+      actorId: session.user.id,
+      action: "payer.plan.create",
+      entityType: "PayerPlan",
+      entityId: plan.id,
+    });
   });
 
   revalidatePath("/payers");
@@ -103,35 +107,37 @@ async function createRequirement(formData: FormData) {
   "use server";
   const session = await getServerSession(authOptions);
   if (!session?.user?.tenantId) throw new Error("UNAUTHORIZED");
-  await assertTenantModuleAccess(session.user.tenantId, "PAYERS");
-  assertRole(session.user.role, [
-    Role.ADMIN_TENANT,
-    Role.COORDINACION,
-    Role.FACTURACION,
-  ]);
+  await withTenant(session.user.tenantId, async (db) => {
+    await assertTenantModuleAccess(db, session.user.tenantId, "PAYERS");
+    assertRole(session.user.role, [
+      Role.ADMIN_TENANT,
+      Role.COORDINACION,
+      Role.FACTURACION,
+    ]);
 
-  const parsed = requirementSchema.safeParse({
-    payerId: formData.get("payerId"),
-    name: formData.get("name"),
-    isRequired: formData.get("isRequired"),
-  });
-  if (!parsed.success) throw new Error("VALIDATION_ERROR");
+    const parsed = requirementSchema.safeParse({
+      payerId: formData.get("payerId"),
+      name: formData.get("name"),
+      isRequired: formData.get("isRequired"),
+    });
+    if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
-  const requirement = await prisma.payerRequirement.create({
-    data: {
+    const requirement = await db.payerRequirement.create({
+      data: {
+        tenantId: session.user.tenantId,
+        payerId: parsed.data.payerId,
+        name: parsed.data.name,
+        isRequired: parsed.data.isRequired === "on",
+      },
+    });
+
+    await logAudit(db, {
       tenantId: session.user.tenantId,
-      payerId: parsed.data.payerId,
-      name: parsed.data.name,
-      isRequired: parsed.data.isRequired === "on",
-    },
-  });
-
-  await logAudit({
-    tenantId: session.user.tenantId,
-    actorId: session.user.id,
-    action: "payer.requirement.create",
-    entityType: "PayerRequirement",
-    entityId: requirement.id,
+      actorId: session.user.id,
+      action: "payer.requirement.create",
+      entityType: "PayerRequirement",
+      entityId: requirement.id,
+    });
   });
 
   revalidatePath("/payers");
@@ -144,21 +150,22 @@ export default async function PayersPage() {
     return <p className="text-sm text-muted-foreground">Sin tenant.</p>;
   }
 
-  const access = await getTenantModuleAccess(tenantId, "PAYERS");
-  if (!access.allowed) {
-    return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
-  }
+  return withTenant(tenantId, async (db) => {
+    const access = await getTenantModuleAccess(db, tenantId, "PAYERS");
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
-  const payers = await prisma.payer.findMany({
-    where: { tenantId },
-    include: {
-      plans: true,
-      requirements: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    const payers = await db.payer.findMany({
+      where: { tenantId },
+      include: {
+        plans: true,
+        requirements: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return (
+    return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold">Obras sociales</h1>
@@ -238,5 +245,6 @@ export default async function PayersPage() {
         ) : null}
       </div>
     </div>
-  );
+    );
+  });
 }
