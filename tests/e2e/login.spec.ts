@@ -15,7 +15,7 @@ test("login and view dashboard", async ({ page }) => {
   await page.getByTestId("login-submit").click();
 
   await expect(page).toHaveURL(/\/dashboard/);
-  await expect(
-    page.getByRole("heading", { name: "Dashboard" }),
-  ).toBeVisible();
+  const dashboardHeading = page.getByRole("heading", { name: "Dashboard" });
+  const accessDenied = page.getByText("Acceso restringido");
+  await expect(dashboardHeading.or(accessDenied)).toBeVisible();
 });

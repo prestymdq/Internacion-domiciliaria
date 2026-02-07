@@ -35,6 +35,9 @@ const errorMessages: Record<string, string> = {
   BATCH_PRODUCT_MISMATCH: "El lote no corresponde al producto.",
   INVOICE_NOT_FOUND: "Factura no encontrada.",
   WAREHOUSE_NOT_FOUND: "Deposito no encontrado.",
+  PICKLIST_NOT_FOUND: "Picklist no encontrada.",
+  REQUIREMENT_NOT_FOUND: "Requisito no encontrado.",
+  USER_NOT_FOUND: "Usuario no encontrado o inactivo.",
 };
 
 export function getErrorMessage(code?: string | null) {

@@ -20,9 +20,10 @@
 
 ## Seguridad y acceso
 - [x] RLS context en DB (`set_config app.tenant_id`)
+- [x] Script para habilitar RLS en tablas con `tenantId`
 - [x] Validacion de IDs externos en acciones criticas
 - [x] Role checks en exports/APIs sensibles
-- [ ] Revisar RLS policies en DB
+- [ ] Aplicar scripts RLS en DB productiva/staging
 - [ ] Revisar server actions restantes con IDs externos
 
 ## Tests
@@ -30,7 +31,7 @@
 - [x] Health route test
 - [x] E2E login
 - [x] E2E crear paciente/episodio/visita
-- [ ] E2E facturacion completa
+- [x] E2E facturacion completa
 
 ## UX de errores
 - [x] Error boundary con mensajes consistentes

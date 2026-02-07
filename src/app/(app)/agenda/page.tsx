@@ -85,12 +85,27 @@ async function createVisit(formData: FormData) {
       throw new Error("EPISODE_NOT_FOUND");
     }
 
+    let assignedUserId: string | null = null;
+    if (parsed.data.assignedUserId) {
+      const assignedUser = await db.user.findFirst({
+        where: {
+          id: parsed.data.assignedUserId,
+          tenantId: session.user.tenantId,
+          isActive: true,
+        },
+      });
+      if (!assignedUser) {
+        throw new Error("USER_NOT_FOUND");
+      }
+      assignedUserId = assignedUser.id;
+    }
+
     const visit = await db.visit.create({
       data: {
         tenantId: session.user.tenantId,
         patientId: episode.patientId,
         episodeId: episode.id,
-        assignedUserId: parsed.data.assignedUserId || null,
+        assignedUserId,
         createdById: session.user.id,
         scheduledAt: new Date(parsed.data.scheduledAt),
         notes: parsed.data.notes ?? null,
@@ -424,6 +439,13 @@ async function addVisitItem(formData: FormData) {
       throw new Error("WAREHOUSE_NOT_FOUND");
     }
 
+    const product = await db.product.findFirst({
+      where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
+    }
+
     const quantity = Number(parsed.data.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new Error("INVALID_QUANTITY");
@@ -432,7 +454,7 @@ async function addVisitItem(formData: FormData) {
     const item = await db.visitItem.create({
       data: {
         visitId: visit.id,
-        productId: parsed.data.productId,
+        productId: product.id,
         quantity,
         warehouseId: warehouse.id,
       },
@@ -450,7 +472,7 @@ async function addVisitItem(formData: FormData) {
       data: {
         tenantId: session.user.tenantId,
         warehouseId: warehouse.id,
-        productId: parsed.data.productId,
+        productId: product.id,
         type: "OUT",
         quantity,
         referenceType: "VISIT_ITEM",

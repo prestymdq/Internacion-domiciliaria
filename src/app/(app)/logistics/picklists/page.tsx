@@ -188,8 +188,18 @@ async function packPickList(formData: FormData) {
     const pickListId = String(formData.get("pickListId") ?? "");
     if (!pickListId) throw new Error("VALIDATION_ERROR");
 
-    const pickList = await db.pickList.update({
+    const pickList = await db.pickList.findFirst({
       where: { id: pickListId, tenantId: session.user.tenantId },
+    });
+    if (!pickList) {
+      throw new Error("PICKLIST_NOT_FOUND");
+    }
+    if (pickList.status !== "FROZEN") {
+      throw new Error("INVALID_STATUS");
+    }
+
+    const updated = await db.pickList.update({
+      where: { id: pickList.id },
       data: { status: "PACKED", packedAt: new Date() },
     });
 
@@ -198,7 +208,7 @@ async function packPickList(formData: FormData) {
       actorId: session.user.id,
       action: "picklist.pack",
       entityType: "PickList",
-      entityId: pickList.id,
+      entityId: updated.id,
     });
   });
 

@@ -168,11 +168,18 @@ async function updateAuthorizationStatus(formData: FormData) {
 
     if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
-    const updated = await db.authorization.update({
+    const authorization = await db.authorization.findFirst({
       where: {
         id: parsed.data.authorizationId,
         tenantId: session.user.tenantId,
       },
+    });
+    if (!authorization) {
+      throw new Error("AUTHORIZATION_NOT_FOUND");
+    }
+
+    const updated = await db.authorization.update({
+      where: { id: authorization.id },
       data: { status: parsed.data.status },
     });
 
@@ -208,11 +215,18 @@ async function updateRequirementStatus(formData: FormData) {
 
     if (!parsed.success) throw new Error("VALIDATION_ERROR");
 
-    const updated = await db.authorizationRequirement.update({
+    const requirement = await db.authorizationRequirement.findFirst({
       where: {
         id: parsed.data.requirementId,
         tenantId: session.user.tenantId,
       },
+    });
+    if (!requirement) {
+      throw new Error("REQUIREMENT_NOT_FOUND");
+    }
+
+    const updated = await db.authorizationRequirement.update({
+      where: { id: requirement.id },
       data: { status: parsed.data.status },
     });
 

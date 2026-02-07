@@ -105,8 +105,15 @@ async function updateReorderPoint(formData: FormData) {
       throw new Error("INVALID_REORDER_POINT");
     }
 
-    const product = await db.product.update({
+    const product = await db.product.findFirst({
       where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
+    }
+
+    const updated = await db.product.update({
+      where: { id: product.id },
       data: { reorderPoint },
     });
 
@@ -115,7 +122,7 @@ async function updateReorderPoint(formData: FormData) {
       actorId: session.user.id,
       action: "product.reorder_point.update",
       entityType: "Product",
-      entityId: product.id,
+      entityId: updated.id,
       meta: { reorderPoint },
     });
   });

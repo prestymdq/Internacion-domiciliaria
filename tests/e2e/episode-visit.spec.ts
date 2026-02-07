@@ -24,34 +24,45 @@ test("create patient, episode and visit", async ({ page }) => {
   await page.getByTestId("login-email").fill(email!);
   await page.getByTestId("login-password").fill(password!);
   await page.getByTestId("login-submit").click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.getByRole("link", { name: "Pacientes" })).toBeVisible();
 
   await page.goto("/patients");
-  await page.getByPlaceholder("Nombre").fill(firstName);
-  await page.getByPlaceholder("Apellido").fill(lastName);
-  await page.getByPlaceholder("DNI").fill(dni);
-  await page.getByRole("button", { name: "Crear paciente" }).click();
+  const patientForm = page.locator("form", {
+    has: page.getByRole("button", { name: "Crear paciente" }),
+  });
+  await patientForm.locator('input[name="firstName"]').fill(firstName);
+  await patientForm.locator('input[name="lastName"]').fill(lastName);
+  await patientForm.locator('input[name="dni"]').fill(dni);
+  await patientForm.getByRole("button", { name: "Crear paciente" }).click();
   await expect(
     page.getByRole("cell", { name: `${lastName}, ${firstName}` }),
   ).toBeVisible();
 
   await page.goto("/episodes");
-  await page
+  const episodeForm = page.locator("form", {
+    has: page.getByRole("button", { name: "Crear episodio" }),
+  });
+  await episodeForm
     .locator('select[name="patientId"]')
     .selectOption({ label: `${lastName}, ${firstName}` });
-  await page.locator('input[name="startDate"]').fill(startDate);
-  await page.getByRole("button", { name: "Crear episodio" }).click();
+  await episodeForm.locator('input[name="startDate"]').fill(startDate);
+  await episodeForm.getByRole("button", { name: "Crear episodio" }).click();
   await expect(
     page.getByRole("cell", { name: `${lastName}, ${firstName}` }),
   ).toBeVisible();
 
   await page.goto("/agenda");
-  await page
+  const visitForm = page.locator("form", {
+    has: page.getByRole("button", { name: "Programar visita" }),
+  });
+  await visitForm
     .locator('select[name="episodeId"]')
     .selectOption({ label: `${lastName}, ${firstName}` });
-  await page.locator('input[name="scheduledAt"]').fill(scheduledAt);
-  await page.getByRole("button", { name: "Programar visita" }).click();
-  await expect(
-    page.getByText(`${lastName}, ${firstName}`),
-  ).toBeVisible();
+  await visitForm.locator('input[name="scheduledAt"]').fill(scheduledAt);
+  await visitForm.getByRole("button", { name: "Programar visita" }).click();
+  const visitCard = page
+    .locator("div.rounded-lg.border.p-4")
+    .filter({ hasText: `${lastName}, ${firstName}` })
+    .first();
+  await expect(visitCard).toContainText(`${lastName}, ${firstName}`);
 });

@@ -1,108 +1,186 @@
-﻿# Manual del proyecto: Internacion Domiciliaria
+﻿# Manual de usuario - Internacion Domiciliaria
 Fecha: 7 de febrero de 2026
 
-## 1) Objetivo
-Este sistema es una plataforma SaaS multi-tenant para gestionar internacion domiciliaria. Integra clinica, logistica, inventario y facturacion, con control de permisos por rol y por plan.
+## 1) Proposito del sistema
+Esta plataforma permite gestionar internacion domiciliaria de punta a punta: pacientes, episodios y visitas clinicas, inventario, logistica de entregas, autorizaciones con obras sociales y facturacion.
 
-## 2) Stack tecnologico
-- Next.js 16 (App Router) y React 19
-- TypeScript
-- NextAuth con credenciales
-- Prisma + PostgreSQL
-- Stripe (suscripciones y portal de pagos)
-- S3/MinIO (evidencias y adjuntos)
-- PDFKit (PDFs de remitos y exportaciones)
-- Tailwind CSS + shadcn/ui
-- Vitest
+## 2) Ingreso y navegacion
+- Ingreso: usa tu email y password en /login.
+- Menu lateral: contiene los modulos segun tu rol y tu plan.
+- Tenant: en la parte superior se indica la empresa/tenant activo.
+- Si ves "Acceso restringido" o un modulo no aparece, puede ser por rol, plan o mora.
 
-## 3) Estructura del repositorio
-- src/: codigo fuente de la app.
-- src/app/: rutas UI y API (App Router).
-- src/lib/: logica de negocio compartida (auth, rls, billing, etc).
-- src/components/: componentes UI y de aplicacion.
-- src/types/: tipos y augmentations (NextAuth).
-- prisma/: esquema, migraciones y seed.
-- docs/: documentacion (incluye docs/rls.md).
-- public/: assets estaticos.
-- tests/: pruebas automatizadas.
-- docker-compose.yml: Postgres + MinIO para entorno local.
-- Configuracion root: package.json, tsconfig.json, eslint.config.mjs, next.config.ts, postcss.config.mjs, components.json.
+## 3) Roles (resumen)
+- Admin Tenant: acceso general al tenant.
+- Coordinacion: operaciones clinicas y autorizaciones.
+- Profesional: agenda y atencion clinica.
+- Deposito: inventario y logistica interna.
+- Logistica: entregas y estados de despacho.
+- Facturacion: reglas, facturas, pagos y debitos.
+- Auditor: lectura (segun configuracion).
+- Superadmin: administracion de tenants.
 
-## 4) Rutas y modulos (UI)
-- /login (grupo (auth)): inicio de sesion con credenciales.
-- /dashboard: KPIs operativos basicos (pacientes, episodios, visitas, entregas, incidentes).
-- /patients: alta y listado de pacientes.
-- /episodes: alta de episodios, workflow, plan de cuidado, alta/egreso.
-- /episodes/[id]: detalle de episodio con timeline y visitas.
-- /agenda: programacion de visitas, checklist, notas clinicas, consumos y adjuntos.
-- /inventory/products: catalogo de productos con reposicion minima.
-- /inventory/warehouses: depositos y ubicaciones.
-- /inventory/stock: movimientos, lotes y alertas de stock/vencimientos.
-- /logistics/orders: ordenes aprobadas y kits.
-- /logistics/picklists: asignacion de depositos, congelado, incidentes y packing.
-- /logistics/deliveries: firmas, evidencia, PDF de remito y cierre.
-- /payers: obras sociales, planes y requisitos.
-- /authorizations: autorizaciones por paciente y carga de requisitos.
-- /billing: estado del plan, checkout y portal Stripe, bloqueos por mora.
-- /billing/preliquidation: control autorizado vs realizado vs evidenciado.
-- /billing/invoices: generacion y exportacion de facturas.
-- /billing/rules: reglas de facturacion por payer/plan y producto.
-- /billing/debits: debitos o rechazos sobre facturas.
-- /billing/payments: pagos y conciliacion.
-- /billing/aging: aging de saldos por rangos.
-- /kpis: analitica y KPIs clinicos, logisticos y financieros.
-- /onboarding (superadmin): alta de tenants y admins.
-- /superadmin/tenants (superadmin): monitoreo basico de tenants.
+## 4) Modulos clinicos
+### 4.1 Dashboard
+Que muestra: un pulso operativo del dia (pacientes activos, episodios, visitas, entregas, incidentes).
+Como usar: revisa indicadores para detectar desvio o atrasos.
 
-## 5) API (endpoints principales)
-- POST /api/auth/[...nextauth]: autenticacion.
-- POST /api/stripe/webhook: eventos de suscripcion y estado de tenant.
-- GET /api/billing/preliquidation/export: export CSV de preliquidacion.
-- GET /api/billing/invoices/export: export CSV o PDF de facturas.
-- GET /api/kpis/export: export CSV de KPIs.
-- GET /api/deliveries/[id]/pdf: PDF de remito/acta de entrega.
-- POST /api/deliveries/[id]/evidence: subida de evidencia.
-- POST /api/visits/[id]/attachments: adjuntos clinicos (imagen o PDF).
-- POST /api/authorizations/requirements/[id]/upload: adjunto de requisito.
+### 4.2 Pacientes
+Para que sirve: alta y mantenimiento de pacientes.
+Como usar:
+- Completa nombre, apellido, DNI y datos opcionales.
+- Usa la lista para verificar datos basicos.
 
-## 6) Seguridad, roles y multi-tenant
-- Middleware protege rutas privadas en src/middleware.ts.
-- Roles disponibles: SUPERADMIN, ADMIN_TENANT, COORDINACION, DEPOSITO, LOGISTICA, PROFESIONAL, FACTURACION, AUDITOR.
-- Control de modulos por plan en src/lib/tenant-access.ts.
-- RLS: withTenant y withSuperadmin setean app.tenant_id y app.is_superadmin.
+### 4.3 Episodios
+Para que sirve: apertura de internacion domiciliaria por paciente y su plan de cuidado.
+Como usar:
+- Crea episodio con paciente, fecha de inicio y diagnostico.
+- Configura estados de workflow del episodio.
+- Carga/actualiza el plan de cuidado (frecuencia y objetivos).
+- Da el alta cuando el workflow este en estado terminal.
 
-## 7) Base de datos (resumen de modelos)
-- Tenant y User: multi-tenant y roles.
-- Patient, Episode, Visit, ClinicalNote, ClinicalAttachment: nucleo clinico.
-- Product, Warehouse, Batch, StockMovement: inventario.
-- ApprovedOrder, PickList, Delivery, Incident: logistica y despacho.
-- Payer, PayerPlan, PayerRequirement, Authorization: obras sociales y autorizaciones.
-- Invoice, InvoiceItem, BillingRule, DebitNote, Payment: facturacion.
-- AuditLog: trazabilidad de acciones.
+### 4.4 Detalle de episodio
+Para que sirve: ver historial clinico del episodio.
+Incluye: resumen, plan de cuidado, timeline, visitas, notas, consumos y adjuntos.
 
-## 8) Integraciones externas
-- Stripe: suscripciones, precios y portal.
-- S3/MinIO: almacenamiento de evidencias y adjuntos.
-- PDFKit: generacion de PDFs (remitos y exportaciones).
+### 4.5 Agenda
+Para que sirve: programar y ejecutar visitas clinicas.
+Como usar:
+- Programar visita: selecciona episodio, profesional, fecha/hora y notas.
+- Check-in: inicia la visita programada.
+- Checklist: completa los items obligatorios.
+- Nota clinica: registra el resumen y el formato SOAP (opcional).
+- Consumibles: registra insumos usados (impacta stock).
+- Adjuntos: sube imagen o PDF (max 10MB) como evidencia clinica.
+- Completar visita: requiere checklist completo y nota clinica.
+- Cancelar visita: si no se realiza.
 
-## 9) Variables de entorno (principales)
-- DATABASE_URL: conexion PostgreSQL.
-- STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_*, STRIPE_*_URL: Stripe.
-- S3_BUCKET, S3_REGION, S3_ENDPOINT, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_URL, S3_FORCE_PATH_STYLE: S3/MinIO.
-- DELIVERY_MIN_EVIDENCE, VISIT_SLA_MINUTES, DELIVERY_SLA_HOURS: reglas operativas.
-- SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, DEFAULT_TENANT_SLUG, DEFAULT_TENANT_ADMIN_EMAIL, DEFAULT_TENANT_ADMIN_PASSWORD: seed y onboarding.
+## 5) Modulos de inventario
+### 5.1 Productos
+Para que sirve: catalogo de insumos.
+Como usar:
+- Crear productos con unidad y reposicion minima.
+- Ajustar reposicion minima para alertas de stock.
 
-## 10) Scripts utiles
-- npm run dev: levantar frontend.
-- npm run build / npm run start: build y produccion.
-- npm run prisma:migrate, npm run prisma:generate, npm run db:push, npm run seed: base de datos.
-- npm run test: ejecutar pruebas.
+### 5.2 Depositos
+Para que sirve: ubicaciones de stock.
+Como usar:
+- Crea depositos y su ubicacion.
 
-## 11) Operacion local recomendada
-- Levantar servicios: docker-compose up -d.
-- Configurar .env con las variables necesarias.
-- Ejecutar migraciones y seed.
-- Iniciar npm run dev.
+### 5.3 Movimientos de stock
+Para que sirve: registrar entradas, salidas y ajustes.
+Como usar:
+- Crea lotes con codigo y vencimiento.
+- Registra movimientos (IN, OUT, ADJUSTMENT).
+- Revisa alertas de stock bajo y vencimientos.
 
-## 12) Tests
-- tests/smoke.test.ts: pruebas basicas de formateo de numeros.
+## 6) Modulos de logistica
+### 6.1 Ordenes y kits
+Para que sirve: preparar ordenes y kits de insumos.
+Como usar:
+- Crea plantillas de kit y agrega items.
+- Crea orden aprobada para un paciente.
+- Agrega items a la orden.
+- Genera picklist desde la orden (una sola vez).
+
+### 6.2 Picklists
+Para que sirve: preparar el despacho.
+Como usar:
+- Asigna deposito a cada item.
+- Congela la picklist para reservar stock.
+- Reporta incidentes si no hay stock (reduce cantidad).
+- Marca como packed cuando esta lista.
+- Crea la entrega cuando esta packed.
+
+### 6.3 Entregas
+Para que sirve: despacho con doble firma y evidencia.
+Como usar:
+- Subir evidencia (foto, PDF u otro archivo).
+- Marcar en transito con datos del retirante.
+- Marcar entregado con datos del receptor.
+- Cerrar entrega cuando finaliza.
+- Descargar PDF de remito.
+
+## 7) Obras sociales y autorizaciones
+### 7.1 Obras sociales (Payers)
+Para que sirve: administrar pagadores, planes y requisitos.
+Como usar:
+- Crea obras sociales.
+- Agrega planes y requisitos (obligatorios u opcionales).
+
+### 7.2 Autorizaciones
+Para que sirve: registrar autorizaciones por paciente y controlar requisitos.
+Como usar:
+- Crea autorizacion con numero, fechas y limites.
+- Sube adjuntos de requisitos.
+- Actualiza estado de autorizacion y requisitos.
+
+## 8) Facturacion y finanzas
+### 8.1 Billing (plan)
+Para que sirve: ver plan, estado y portal de pagos.
+Como usar:
+- Selecciona plan (Stripe checkout).
+- Abre portal Stripe para administrar suscripcion.
+- Configura bloqueos por mora.
+
+### 8.2 Pre-liquidacion
+Para que sirve: comparar autorizado vs realizado vs evidenciado.
+Como usar:
+- Revisa tabla y descarga CSV.
+
+### 8.3 Facturas
+Para que sirve: generar y exportar facturas.
+Como usar:
+- Configura reglas de facturacion antes de emitir.
+- Selecciona entrega y autorizacion valida.
+- Requisitos para facturar:
+- Entrega en estado DELIVERED o CLOSED.
+- Evidencia minima cargada.
+- Autorizacion activa, vigente y sin requisitos pendientes.
+- Exporta facturas por obra social (CSV o PDF).
+
+### 8.4 Reglas de facturacion
+Para que sirve: definir precios y honorarios por obra social y plan.
+Como usar:
+- Crea regla por producto (toma prioridad si hay plan).
+- Ajusta precios y honorarios cuando sea necesario.
+
+### 8.5 Debitos
+Para que sirve: registrar rechazos o debitos sobre facturas.
+Como usar:
+- Selecciona factura, ingresa monto y motivo.
+
+### 8.6 Pagos
+Para que sirve: registrar cobros y conciliacion.
+Como usar:
+- Selecciona factura, ingresa monto, metodo y referencia.
+
+### 8.7 Aging
+Para que sirve: ver saldos por antiguedad.
+Como usar:
+- Revisa rangos 0-30, 31-60, 61-90 y 90+ dias.
+
+## 9) KPIs
+Para que sirve: analitica clinica, logistica y financiera.
+Como usar:
+- Filtra por rango de fechas, profesional o payer.
+- Revisa alertas criticas (visitas vencidas, entregas atrasadas, stock bajo, etc).
+- Exporta CSV.
+
+## 10) Administracion (superadmin)
+### 10.1 Onboarding
+Para que sirve: crear tenants y admins.
+Como usar:
+- Alta de tenant con plan y slug.
+- Alta de admin del tenant.
+
+### 10.2 Tenants
+Para que sirve: monitoreo basico de clientes (plan, status, trial).
+
+## 11) Flujos principales (resumen)
+- Clinico: Paciente -> Episodio -> Agenda (visitas + notas + adjuntos) -> Alta.
+- Logistica: Orden -> Picklist -> Congelar -> Packed -> Entrega -> Evidencia -> Entregado -> Cierre.
+- Facturacion: Reglas -> Autorizacion activa -> Entrega entregada -> Factura -> Pagos/Debitos -> Aging.
+
+## 12) Soporte
+Si necesitas acceso a un modulo o rol, solicita al administrador del tenant.
