@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { withSuperadmin } from "@/lib/rls";
 
 export default async function SuperadminTenantsPage() {
   const session = await getServerSession(authOptions);
@@ -15,9 +15,11 @@ export default async function SuperadminTenantsPage() {
     );
   }
 
-  const tenants = await prisma.tenant.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  const tenants = await withSuperadmin((db) =>
+    db.tenant.findMany({
+      orderBy: { createdAt: "desc" },
+    }),
+  );
 
   return (
     <div className="space-y-6">

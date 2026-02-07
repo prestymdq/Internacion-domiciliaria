@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import NavLink from "@/components/app/nav-link";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { withTenant } from "@/lib/rls";
 
 export default async function AppLayout({
   children,
@@ -19,9 +19,11 @@ export default async function AppLayout({
   }
 
   const tenant = session.user.tenantId
-    ? await prisma.tenant.findUnique({
-        where: { id: session.user.tenantId },
-      })
+    ? await withTenant(session.user.tenantId, (db) =>
+        db.tenant.findUnique({
+          where: { id: session.user.tenantId },
+        }),
+      )
     : null;
 
   const isSuperAdmin = session.user.role === "SUPERADMIN";

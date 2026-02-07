@@ -3,12 +3,12 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { assertRole } from "@/lib/rbac";
 import { PlanTier, Role, TenantStatus } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { withSuperadmin } from "@/lib/rls";
 
 const tenantSchema = z.object({
   name: z.string().min(1),
@@ -31,32 +31,34 @@ async function createTenant(formData: FormData) {
   }
   assertRole(session.user.role, [Role.SUPERADMIN]);
 
-  const parsed = tenantSchema.safeParse({
-    name: formData.get("name"),
-    slug: formData.get("slug"),
-    plan: formData.get("plan"),
-  });
+  await withSuperadmin(async (db) => {
+    const parsed = tenantSchema.safeParse({
+      name: formData.get("name"),
+      slug: formData.get("slug"),
+      plan: formData.get("plan"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const tenant = await prisma.tenant.create({
-    data: {
-      name: parsed.data.name,
-      slug: parsed.data.slug,
-      plan: parsed.data.plan,
-      status: TenantStatus.TRIALING,
-      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-    },
-  });
+    const tenant = await db.tenant.create({
+      data: {
+        name: parsed.data.name,
+        slug: parsed.data.slug,
+        plan: parsed.data.plan,
+        status: TenantStatus.TRIALING,
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      },
+    });
 
-  await logAudit({
-    actorId: session.user.id,
-    action: "tenant.create",
-    entityType: "Tenant",
-    entityId: tenant.id,
-    meta: { slug: tenant.slug },
+    await logAudit(db, {
+      actorId: session.user.id,
+      action: "tenant.create",
+      entityType: "Tenant",
+      entityId: tenant.id,
+      meta: { slug: tenant.slug },
+    });
   });
 
   revalidatePath("/onboarding");
@@ -70,36 +72,38 @@ async function createTenantAdmin(formData: FormData) {
   }
   assertRole(session.user.role, [Role.SUPERADMIN]);
 
-  const parsed = adminSchema.safeParse({
-    tenantId: formData.get("tenantId"),
-    email: formData.get("email"),
-    password: formData.get("password"),
-    name: formData.get("name"),
-  });
+  await withSuperadmin(async (db) => {
+    const parsed = adminSchema.safeParse({
+      tenantId: formData.get("tenantId"),
+      email: formData.get("email"),
+      password: formData.get("password"),
+      name: formData.get("name"),
+    });
 
-  if (!parsed.success) {
-    throw new Error("VALIDATION_ERROR");
-  }
+    if (!parsed.success) {
+      throw new Error("VALIDATION_ERROR");
+    }
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+    const passwordHash = await bcrypt.hash(parsed.data.password, 10);
 
-  const user = await prisma.user.create({
-    data: {
+    const user = await db.user.create({
+      data: {
+        tenantId: parsed.data.tenantId,
+        email: parsed.data.email,
+        name: parsed.data.name,
+        role: Role.ADMIN_TENANT,
+        passwordHash,
+        isActive: true,
+      },
+    });
+
+    await logAudit(db, {
+      actorId: session.user.id,
       tenantId: parsed.data.tenantId,
-      email: parsed.data.email,
-      name: parsed.data.name,
-      role: Role.ADMIN_TENANT,
-      passwordHash,
-      isActive: true,
-    },
-  });
-
-  await logAudit({
-    actorId: session.user.id,
-    tenantId: parsed.data.tenantId,
-    action: "tenant.admin.create",
-    entityType: "User",
-    entityId: user.id,
+      action: "tenant.admin.create",
+      entityType: "User",
+      entityId: user.id,
+    });
   });
 
   revalidatePath("/onboarding");
@@ -119,9 +123,11 @@ export default async function OnboardingPage() {
     );
   }
 
-  const tenants = await prisma.tenant.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  const tenants = await withSuperadmin((db) =>
+    db.tenant.findMany({
+      orderBy: { createdAt: "desc" },
+    }),
+  );
 
   return (
     <div className="space-y-6">

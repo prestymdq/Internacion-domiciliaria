@@ -1,9 +1,9 @@
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
-import { prisma } from "@/lib/db";
-import { PlanTier, TenantStatus } from "@prisma/client";
+import { PlanTier, Prisma, TenantStatus } from "@prisma/client";
 import { logAudit } from "@/lib/audit";
 import type Stripe from "stripe";
+import { withSuperadmin } from "@/lib/rls";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +38,10 @@ async function tenantIdFromInvoice(invoice: Stripe.Invoice) {
   return null;
 }
 
-async function upsertSubscriptionFromStripe(subscription: Stripe.Subscription) {
+async function upsertSubscriptionFromStripe(
+  db: Prisma.TransactionClient,
+  subscription: Stripe.Subscription,
+) {
   const tenantId = subscription.metadata?.tenantId;
   if (!tenantId) return;
 
@@ -47,7 +50,7 @@ async function upsertSubscriptionFromStripe(subscription: Stripe.Subscription) {
   const seatCount = subscription.items.data[0]?.quantity ?? null;
   const status = tenantStatusFromSubscription(subscription.status);
 
-  await prisma.tenantSubscription.upsert({
+  await db.tenantSubscription.upsert({
     where: { tenantId },
     update: {
       stripeCustomerId: subscription.customer as string,
@@ -80,7 +83,7 @@ async function upsertSubscriptionFromStripe(subscription: Stripe.Subscription) {
     },
   });
 
-  await prisma.tenant.update({
+  await db.tenant.update({
     where: { id: tenantId },
     data: {
       status,
@@ -111,7 +114,7 @@ export async function POST(request: Request) {
       const subscriptionId = session.subscription as string | null;
       if (subscriptionId) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-        await upsertSubscriptionFromStripe(subscription);
+        await withSuperadmin((db) => upsertSubscriptionFromStripe(db, subscription));
       }
       break;
     }
@@ -119,17 +122,19 @@ export async function POST(request: Request) {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
-      await upsertSubscriptionFromStripe(subscription);
+      await withSuperadmin((db) => upsertSubscriptionFromStripe(db, subscription));
       break;
     }
     case "invoice.payment_failed": {
       const invoice = event.data.object as Stripe.Invoice;
       const tenantId = await tenantIdFromInvoice(invoice);
       if (tenantId) {
-        await prisma.tenant.update({
-          where: { id: tenantId },
-          data: { status: TenantStatus.PAST_DUE },
-        });
+        await withSuperadmin((db) =>
+          db.tenant.update({
+            where: { id: tenantId },
+            data: { status: TenantStatus.PAST_DUE },
+          }),
+        );
       }
       break;
     }
@@ -137,10 +142,12 @@ export async function POST(request: Request) {
       const invoice = event.data.object as Stripe.Invoice;
       const tenantId = await tenantIdFromInvoice(invoice);
       if (tenantId) {
-        await prisma.tenant.update({
-          where: { id: tenantId },
-          data: { status: TenantStatus.ACTIVE },
-        });
+        await withSuperadmin((db) =>
+          db.tenant.update({
+            where: { id: tenantId },
+            data: { status: TenantStatus.ACTIVE },
+          }),
+        );
       }
       break;
     }
@@ -148,12 +155,14 @@ export async function POST(request: Request) {
       break;
   }
 
-  await logAudit({
-    action: "billing.event",
-    entityType: "StripeEvent",
-    entityId: event.id,
-    meta: { type: event.type },
-  });
+  await withSuperadmin((db) =>
+    logAudit(db, {
+      action: "billing.event",
+      entityType: "StripeEvent",
+      entityId: event.id,
+      meta: { type: event.type },
+    }),
+  );
 
   return new Response("ok", { status: 200 });
 }
