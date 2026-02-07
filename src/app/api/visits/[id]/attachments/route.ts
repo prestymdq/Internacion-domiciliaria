@@ -9,6 +9,8 @@ import { withTenant } from "@/lib/rls";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
 export async function POST(
   request: Request,
   { params }: { params: { id: string } },
@@ -48,6 +50,16 @@ export async function POST(
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "FILE_REQUIRED" }, { status: 400 });
   }
+  if (file.size > MAX_FILE_BYTES) {
+    return NextResponse.json({ error: "FILE_TOO_LARGE" }, { status: 400 });
+  }
+
+  const mimeType = file.type || "application/octet-stream";
+  const isAllowed =
+    mimeType.startsWith("image/") || mimeType === "application/pdf";
+  if (!isAllowed) {
+    return NextResponse.json({ error: "UNSUPPORTED_FILE_TYPE" }, { status: 400 });
+  }
 
   const visit = accessResult.visit;
 
@@ -59,7 +71,7 @@ export async function POST(
   const uploaded = await uploadEvidenceObject({
     key,
     body: buffer,
-    contentType: file.type || "application/octet-stream",
+    contentType: mimeType,
   });
 
   await withTenant(session.user.tenantId, async (db) => {
@@ -72,7 +84,7 @@ export async function POST(
         fileKey: uploaded.key,
         fileUrl: uploaded.url ?? null,
         fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
+        mimeType,
         size: buffer.length,
         uploadedById: session.user.id,
       },

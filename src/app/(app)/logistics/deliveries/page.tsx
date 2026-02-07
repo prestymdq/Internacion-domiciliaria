@@ -87,6 +87,7 @@ async function markDelivered(formData: FormData) {
   }
   await withTenant(session.user.tenantId, async (db) => {
     await assertTenantModuleAccess(db, session.user.tenantId, "LOGISTICS");
+    await assertTenantModuleAccess(db, session.user.tenantId, "INVENTORY");
     assertRole(session.user.role, [Role.ADMIN_TENANT, Role.LOGISTICA]);
 
     const parsed = deliveredSchema.safeParse({
@@ -102,6 +103,9 @@ async function markDelivered(formData: FormData) {
 
     const delivery = await db.delivery.findFirst({
       where: { id: parsed.data.deliveryId, tenantId: session.user.tenantId },
+      include: {
+        pickList: { include: { items: true } },
+      },
     });
 
     if (!delivery || delivery.status !== "IN_TRANSIT") {
@@ -119,6 +123,48 @@ async function markDelivered(formData: FormData) {
 
     if (evidenceCount < minEvidence) {
       throw new Error("EVIDENCE_REQUIRED");
+    }
+
+    if (!delivery.pickList) {
+      throw new Error("PICKLIST_NOT_FOUND");
+    }
+
+    if (!delivery.pickList.stockCommittedAt) {
+      for (const item of delivery.pickList.items) {
+        if (!item.warehouseId) {
+          throw new Error("WAREHOUSE_REQUIRED");
+        }
+        if (item.pickedQty <= 0) {
+          continue;
+        }
+
+        const movement = await db.stockMovement.create({
+          data: {
+            tenantId: session.user.tenantId,
+            warehouseId: item.warehouseId,
+            productId: item.productId,
+            type: "OUT",
+            quantity: item.pickedQty,
+            referenceType: "DELIVERY",
+            referenceId: delivery.id,
+            createdById: session.user.id,
+          },
+        });
+
+        await logAudit(db, {
+          tenantId: session.user.tenantId,
+          actorId: session.user.id,
+          action: "stock.movement.delivery",
+          entityType: "StockMovement",
+          entityId: movement.id,
+          meta: { quantity: movement.quantity, productId: item.productId },
+        });
+      }
+
+      await db.pickList.update({
+        where: { id: delivery.pickListId },
+        data: { stockCommittedAt: new Date() },
+      });
     }
 
     const updated = await db.delivery.update({
@@ -202,128 +248,121 @@ export default async function DeliveriesPage() {
       include: {
         approvedOrder: { include: { patient: true } },
         evidence: true,
+        pickList: true,
       },
       orderBy: { createdAt: "desc" },
     });
 
     return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Entregas</h1>
-        <p className="text-sm text-muted-foreground">
-          Doble firma + evidencia obligatoria.
-        </p>
-      </div>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Entregas</h1>
+          <p className="text-sm text-muted-foreground">
+            Doble firma + evidencia obligatoria + stock automatico.
+          </p>
+        </div>
 
-      <div className="space-y-4">
-        {deliveries.map((delivery) => (
-          <div key={delivery.id} className="rounded-lg border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-medium">
-                  {delivery.deliveryNumber}
+        <div className="space-y-4">
+          {deliveries.map((delivery) => (
+            <div key={delivery.id} className="rounded-lg border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">
+                    {delivery.deliveryNumber}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Paciente: {delivery.approvedOrder.patient.lastName},{" "}
+                    {delivery.approvedOrder.patient.firstName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Estado: {delivery.status}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  Paciente: {delivery.approvedOrder.patient.lastName},{" "}
-                  {delivery.approvedOrder.patient.firstName}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Estado: {delivery.status}
-                </div>
-              </div>
-              <Button asChild size="sm" variant="outline">
-                <Link href={`/api/deliveries/${delivery.id}/pdf`}>
-                  PDF remito
-                </Link>
-              </Button>
-            </div>
-
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <form
-                action={`/api/deliveries/${delivery.id}/evidence`}
-                method="post"
-                encType="multipart/form-data"
-                className="rounded-md border p-3"
-              >
-                <input type="hidden" name="deliveryId" value={delivery.id} />
-                <input name="file" type="file" required />
-                <Button size="sm" type="submit" className="mt-2">
-                  Subir evidencia
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/api/deliveries/${delivery.id}/pdf`}>
+                    PDF remito
+                  </Link>
                 </Button>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Evidencia: {delivery.evidence.length}
-                </p>
-                {delivery.evidence.length > 0 ? (
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {delivery.evidence.map((evidence) => (
-                      <li key={evidence.id}>{evidence.fileName}</li>
-                    ))}
-                  </ul>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <form
+                  action={`/api/deliveries/${delivery.id}/evidence`}
+                  method="post"
+                  encType="multipart/form-data"
+                  className="rounded-md border p-3"
+                >
+                  <input type="hidden" name="deliveryId" value={delivery.id} />
+                  <input name="file" type="file" required />
+                  <Button size="sm" type="submit" className="mt-2">
+                    Subir evidencia
+                  </Button>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Evidencia: {delivery.evidence.length}
+                  </p>
+                  {delivery.evidence.length > 0 ? (
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {delivery.evidence.map((evidence) => (
+                        <li key={evidence.id}>{evidence.fileName}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </form>
+
+                {delivery.status === "PACKED" ? (
+                  <form action={markInTransit} className="rounded-md border p-3">
+                    <input type="hidden" name="deliveryId" value={delivery.id} />
+                    <Input name="carrierName" placeholder="Retirante" required />
+                    <Input
+                      name="carrierDni"
+                      placeholder="DNI retirante"
+                      required
+                      className="mt-2"
+                    />
+                    <Button size="sm" type="submit" className="mt-2">
+                      Marcar en transito
+                    </Button>
+                  </form>
                 ) : null}
-              </form>
 
-              {delivery.status === "PACKED" ? (
-                <form action={markInTransit} className="rounded-md border p-3">
-                  <input type="hidden" name="deliveryId" value={delivery.id} />
-                  <Input
-                    name="carrierName"
-                    placeholder="Retirante"
-                    required
-                  />
-                  <Input
-                    name="carrierDni"
-                    placeholder="DNI retirante"
-                    required
-                    className="mt-2"
-                  />
-                  <Button size="sm" type="submit" className="mt-2">
-                    Marcar en tránsito
-                  </Button>
-                </form>
-              ) : null}
+                {delivery.status === "IN_TRANSIT" ? (
+                  <form action={markDelivered} className="rounded-md border p-3">
+                    <input type="hidden" name="deliveryId" value={delivery.id} />
+                    <Input name="receiverName" placeholder="Receptor" required />
+                    <Input
+                      name="receiverDni"
+                      placeholder="DNI receptor"
+                      required
+                      className="mt-2"
+                    />
+                    <Input
+                      name="receiverRelation"
+                      placeholder="Vinculo"
+                      required
+                      className="mt-2"
+                    />
+                    <Button size="sm" type="submit" className="mt-2">
+                      Marcar entregado
+                    </Button>
+                  </form>
+                ) : null}
 
-              {delivery.status === "IN_TRANSIT" ? (
-                <form action={markDelivered} className="rounded-md border p-3">
-                  <input type="hidden" name="deliveryId" value={delivery.id} />
-                  <Input
-                    name="receiverName"
-                    placeholder="Receptor"
-                    required
-                  />
-                  <Input
-                    name="receiverDni"
-                    placeholder="DNI receptor"
-                    required
-                    className="mt-2"
-                  />
-                  <Input
-                    name="receiverRelation"
-                    placeholder="Vínculo"
-                    required
-                    className="mt-2"
-                  />
-                  <Button size="sm" type="submit" className="mt-2">
-                    Marcar entregado
-                  </Button>
-                </form>
-              ) : null}
-
-              {delivery.status === "DELIVERED" ? (
-                <form action={closeDelivery} className="rounded-md border p-3">
-                  <input type="hidden" name="deliveryId" value={delivery.id} />
-                  <Button size="sm" type="submit">
-                    Cerrar entrega
-                  </Button>
-                </form>
-              ) : null}
+                {delivery.status === "DELIVERED" ? (
+                  <form action={closeDelivery} className="rounded-md border p-3">
+                    <input type="hidden" name="deliveryId" value={delivery.id} />
+                    <Button size="sm" type="submit">
+                      Cerrar entrega
+                    </Button>
+                  </form>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ))}
-        {deliveries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin entregas aún.</p>
-        ) : null}
+          ))}
+          {deliveries.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin entregas aun.</p>
+          ) : null}
+        </div>
       </div>
-    </div>
     );
   });
 }

@@ -144,6 +144,7 @@ model Tenant {
   debitNotes   DebitNote[]
   payments     Payment[]
   billingTemplates BillingTemplate[]
+  billingRules BillingRule[]
 
   @@index([status])
 }
@@ -285,6 +286,7 @@ model Product {
   sku         String?
   unit        String
   packSize    Int?
+  reorderPoint Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -295,6 +297,7 @@ model Product {
   pickListItems PickListItem[]
   visitItems  VisitItem[]
   invoiceItems InvoiceItem[]
+  billingRules BillingRule[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, name])
@@ -311,6 +314,7 @@ model Warehouse {
 
   stockMovements StockMovement[]
   visitItems  VisitItem[]
+  pickListItems PickListItem[]
 
   @@unique([tenantId, name])
 }
@@ -410,6 +414,7 @@ model PickList {
   status         PickListStatus @default(DRAFT)
   frozenAt       DateTime?
   packedAt       DateTime?
+  stockCommittedAt DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -425,10 +430,14 @@ model PickListItem {
   pickList     PickList     @relation(fields: [pickListId], references: [id], onDelete: Cascade)
   productId    String
   product      Product      @relation(fields: [productId], references: [id])
+  warehouseId  String?
+  warehouse    Warehouse?   @relation(fields: [warehouseId], references: [id])
   requestedQty Int
   pickedQty    Int
   incidentId   String?
   incident     Incident?    @relation(fields: [incidentId], references: [id])
+
+  @@index([pickListId])
 }
 
 model Delivery {
@@ -508,6 +517,7 @@ model Payer {
   authorizations Authorization[]
   invoices Invoice[]
   billingTemplates BillingTemplate[]
+  billingRules BillingRule[]
 
   @@unique([tenantId, name])
 }
@@ -523,6 +533,7 @@ model PayerPlan {
   updatedAt DateTime @updatedAt
 
   authorizations Authorization[]
+  billingRules BillingRule[]
 
   @@unique([tenantId, payerId, name])
 }
@@ -626,8 +637,12 @@ model Invoice {
   tenant        Tenant        @relation(fields: [tenantId], references: [id])
   payerId       String
   payer         Payer         @relation(fields: [payerId], references: [id])
+  planId        String?
+  plan          PayerPlan?    @relation(fields: [planId], references: [id])
   patientId     String
   patient       Patient       @relation(fields: [patientId], references: [id])
+  authorizationId String?
+  authorization Authorization? @relation(fields: [authorizationId], references: [id])
   status        InvoiceStatus @default(ISSUED)
   invoiceNumber String
   currency      String        @default("ARS")
@@ -647,6 +662,7 @@ model Invoice {
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId, payerId])
   @@index([tenantId, patientId])
+  @@index([tenantId, authorizationId])
 }
 
 model InvoiceItem {
@@ -660,12 +676,32 @@ model InvoiceItem {
   description   String?
   quantity      Int
   unitPrice     Float
+  honorarium    Float    @default(0)
   total         Float
   evidenceCount Int      @default(0)
   evidenceMeta  Json?
   createdAt     DateTime @default(now())
 
   @@index([invoiceId])
+}
+
+model BillingRule {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  payerId     String
+  payer       Payer    @relation(fields: [payerId], references: [id])
+  planId      String?
+  plan        PayerPlan? @relation(fields: [planId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  unitPrice   Float
+  honorarium  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, payerId, planId])
+  @@unique([tenantId, payerId, planId, productId])
 }
 
 model DebitNote {

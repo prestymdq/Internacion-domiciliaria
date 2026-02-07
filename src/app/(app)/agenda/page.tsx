@@ -16,12 +16,12 @@ import AccessDenied from "@/components/app/access-denied";
 import { withTenant } from "@/lib/rls";
 
 const defaultChecklistItems = [
-  { key: "patient_identity", label: "IdentificaciÃ³n del paciente" },
+  { key: "patient_identity", label: "Identificacion del paciente" },
   { key: "hand_hygiene", label: "Higiene de manos" },
   { key: "vitals", label: "Signos vitales registrados" },
-  { key: "intervention", label: "IntervenciÃ³n realizada" },
+  { key: "intervention", label: "Intervencion realizada" },
   { key: "consumables", label: "Consumibles registrados" },
-  { key: "next_visit", label: "PrÃ³xima visita coordinada" },
+  { key: "next_visit", label: "Proxima visita coordinada" },
 ];
 
 const visitSchema = z.object({
@@ -49,7 +49,7 @@ const itemSchema = z.object({
   visitId: z.string().min(1),
   productId: z.string().min(1),
   quantity: z.string().min(1),
-  warehouseId: z.string().optional(),
+  warehouseId: z.string().min(1),
 });
 
 async function createVisit(formData: FormData) {
@@ -185,6 +185,20 @@ async function completeVisit(formData: FormData) {
       throw new Error("INVALID_STATUS");
     }
 
+    const checklistIncomplete = await db.visitChecklistItem.count({
+      where: { visitId: visit.id, isRequired: true, isCompleted: false },
+    });
+    if (checklistIncomplete > 0) {
+      throw new Error("CHECKLIST_INCOMPLETE");
+    }
+
+    const notesCount = await db.clinicalNote.count({
+      where: { visitId: visit.id },
+    });
+    if (notesCount === 0) {
+      throw new Error("NOTE_REQUIRED");
+    }
+
     const updated = await db.visit.update({
       where: { id: visit.id },
       data: { status: VisitStatus.COMPLETED, checkOutAt: new Date() },
@@ -272,7 +286,6 @@ async function toggleChecklistItem(formData: FormData) {
         id: parsed.data.checklistId,
         visit: { tenantId: session.user.tenantId },
       },
-      include: { visit: true },
     });
 
     if (!checklistItem) {
@@ -377,6 +390,7 @@ async function addVisitItem(formData: FormData) {
   }
   await withTenant(session.user.tenantId, async (db) => {
     await assertTenantModuleAccess(db, session.user.tenantId, "CLINIC");
+    await assertTenantModuleAccess(db, session.user.tenantId, "INVENTORY");
     assertRole(session.user.role, [
       Role.ADMIN_TENANT,
       Role.COORDINACION,
@@ -402,23 +416,24 @@ async function addVisitItem(formData: FormData) {
       throw new Error("VISIT_NOT_FOUND");
     }
 
-    const warehouseId = parsed.data.warehouseId?.trim() || null;
-    if (warehouseId) {
-      const warehouse = await db.warehouse.findFirst({
-        where: { id: warehouseId, tenantId: session.user.tenantId },
-      });
-      if (!warehouse) {
-        throw new Error("WAREHOUSE_NOT_FOUND");
-      }
+    const warehouse = await db.warehouse.findFirst({
+      where: { id: parsed.data.warehouseId, tenantId: session.user.tenantId },
+    });
+    if (!warehouse) {
+      throw new Error("WAREHOUSE_NOT_FOUND");
     }
 
     const quantity = Number(parsed.data.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error("INVALID_QUANTITY");
+    }
+
     const item = await db.visitItem.create({
       data: {
         visitId: visit.id,
         productId: parsed.data.productId,
         quantity,
-        warehouseId,
+        warehouseId: warehouse.id,
       },
     });
 
@@ -430,29 +445,27 @@ async function addVisitItem(formData: FormData) {
       entityId: item.id,
     });
 
-    if (warehouseId) {
-      const movement = await db.stockMovement.create({
-        data: {
-          tenantId: session.user.tenantId,
-          warehouseId,
-          productId: parsed.data.productId,
-          type: "OUT",
-          quantity,
-          referenceType: "VISIT_ITEM",
-          referenceId: item.id,
-          createdById: session.user.id,
-        },
-      });
-
-      await logAudit(db, {
+    const movement = await db.stockMovement.create({
+      data: {
         tenantId: session.user.tenantId,
-        actorId: session.user.id,
-        action: "stock.movement.visit_item",
-        entityType: "StockMovement",
-        entityId: movement.id,
-        meta: { quantity, productId: parsed.data.productId },
-      });
-    }
+        warehouseId: warehouse.id,
+        productId: parsed.data.productId,
+        type: "OUT",
+        quantity,
+        referenceType: "VISIT_ITEM",
+        referenceId: item.id,
+        createdById: session.user.id,
+      },
+    });
+
+    await logAudit(db, {
+      tenantId: session.user.tenantId,
+      actorId: session.user.id,
+      action: "stock.movement.visit_item",
+      entityType: "StockMovement",
+      entityId: movement.id,
+      meta: { quantity, productId: parsed.data.productId },
+    });
   });
 
   revalidatePath("/agenda");
@@ -470,6 +483,12 @@ export default async function AgendaPage() {
     if (!access.allowed) {
       return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
     }
+
+    const inventoryAccess = await getTenantModuleAccess(
+      db,
+      tenantId,
+      "INVENTORY",
+    );
 
     const episodes = await db.episode.findMany({
       where: { tenantId, status: "ACTIVE" },
@@ -507,7 +526,7 @@ export default async function AgendaPage() {
         <div>
           <h1 className="text-2xl font-semibold">Agenda</h1>
           <p className="text-sm text-muted-foreground">
-            ProgramaciÃ³n de visitas, notas clÃ­nicas y consumos.
+            Programacion de visitas, notas clinicas y consumos.
           </p>
         </div>
 
@@ -543,231 +562,300 @@ export default async function AgendaPage() {
         </form>
 
         <div className="space-y-4">
-          {visits.map((visit) => (
-            <div key={visit.id} className="rounded-lg border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">
-                    {visit.patient.lastName}, {visit.patient.firstName}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {visit.scheduledAt.toLocaleString("es-AR")} Â·{" "}
-                    {visit.assignedUser?.name ?? "Sin asignar"} Â·{" "}
-                    {visit.status}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {visit.status === "SCHEDULED" ? (
-                    <form action={checkInVisit}>
-                      <input type="hidden" name="visitId" value={visit.id} />
-                      <Button size="sm" type="submit">
-                        Check-in
-                      </Button>
-                    </form>
-                  ) : null}
-                  {visit.status === "IN_PROGRESS" ? (
-                    <form action={completeVisit}>
-                      <input type="hidden" name="visitId" value={visit.id} />
-                      <Button size="sm" variant="secondary" type="submit">
-                        Completar
-                      </Button>
-                    </form>
-                  ) : null}
-                  {visit.status !== "COMPLETED" ? (
-                    <form action={cancelVisit}>
-                      <input type="hidden" name="visitId" value={visit.id} />
-                      <Button size="sm" variant="outline" type="submit">
-                        Cancelar
-                      </Button>
-                    </form>
-                  ) : null}
-                </div>
-              </div>
+          {visits.map((visit) => {
+            const requiredChecklist = visit.checklistItems.filter(
+              (item) => item.isRequired && !item.isCompleted,
+            );
+            const hasNotes = visit.clinicalNotes.length > 0;
+            const canComplete = requiredChecklist.length === 0 && hasNotes;
+            const missing = [
+              requiredChecklist.length > 0 ? "checklist" : null,
+              !hasNotes ? "nota clinica" : null,
+            ].filter(Boolean);
 
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <div className="rounded-md border p-3">
-                  <div className="text-sm font-medium">Checklist</div>
-                  <ul className="mt-2 space-y-2 text-xs text-muted-foreground">
-                    {visit.checklistItems.map((item) => (
-                      <li key={item.id} className="flex items-center gap-2">
-                        <span
-                          className={
-                            item.isCompleted
-                              ? "line-through text-muted-foreground"
-                              : ""
+            return (
+              <div key={visit.id} className="rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">
+                      {visit.patient.lastName}, {visit.patient.firstName}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {visit.scheduledAt.toLocaleString("es-AR")} -{" "}
+                      {visit.assignedUser?.name ?? "Sin asignar"} -{" "}
+                      {visit.status}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {visit.status === "SCHEDULED" ? (
+                      <form action={checkInVisit}>
+                        <input type="hidden" name="visitId" value={visit.id} />
+                        <Button size="sm" type="submit">
+                          Check-in
+                        </Button>
+                      </form>
+                    ) : null}
+                    {visit.status === "IN_PROGRESS" ? (
+                      <form action={completeVisit}>
+                        <input type="hidden" name="visitId" value={visit.id} />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          type="submit"
+                          disabled={!canComplete}
+                          title={
+                            canComplete
+                              ? "Completar visita"
+                              : "Completa checklist y nota clinica"
                           }
                         >
-                          {item.label}
-                        </span>
-                        <form action={toggleChecklistItem} className="ml-auto">
-                          <input
-                            type="hidden"
-                            name="checklistId"
-                            value={item.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="completed"
-                            value={item.isCompleted ? "false" : "true"}
-                          />
-                          <Button
-                            size="sm"
-                            variant={item.isCompleted ? "outline" : "secondary"}
-                            type="submit"
-                          >
-                            {item.isCompleted ? "Desmarcar" : "Completar"}
-                          </Button>
-                        </form>
-                      </li>
-                    ))}
-                    {visit.checklistItems.length === 0 ? (
-                      <li>Sin checklist.</li>
+                          Completar
+                        </Button>
+                      </form>
                     ) : null}
-                  </ul>
-                </div>
-
-                <form action={addClinicalNote} className="rounded-md border p-3">
-                  <input type="hidden" name="visitId" value={visit.id} />
-                  <Textarea
-                    name="summary"
-                    placeholder="Resumen clÃ­nico"
-                    required
-                  />
-                  <Textarea
-                    name="subjective"
-                    placeholder="Subjetivo"
-                    className="mt-2"
-                  />
-                  <Textarea
-                    name="objective"
-                    placeholder="Objetivo"
-                    className="mt-2"
-                  />
-                  <Textarea
-                    name="assessment"
-                    placeholder="EvaluaciÃ³n"
-                    className="mt-2"
-                  />
-                  <Textarea name="plan" placeholder="Plan" className="mt-2" />
-                  <Button size="sm" type="submit" className="mt-2">
-                    Agregar nota
-                  </Button>
-                  <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-                    {visit.clinicalNotes.map((note) => {
-                      const structured = note.structured as
-                        | {
-                            subjective?: string;
-                            objective?: string;
-                            assessment?: string;
-                            plan?: string;
-                          }
-                        | null;
-
-                      return (
-                        <div key={note.id} className="rounded border p-2">
-                          <div className="font-medium">
-                            {note.author.name ?? note.author.email}:{" "}
-                            {note.content}
-                          </div>
-                          {structured?.subjective ? (
-                            <div>Subjetivo: {structured.subjective}</div>
-                          ) : null}
-                          {structured?.objective ? (
-                            <div>Objetivo: {structured.objective}</div>
-                          ) : null}
-                          {structured?.assessment ? (
-                            <div>EvaluaciÃ³n: {structured.assessment}</div>
-                          ) : null}
-                          {structured?.plan ? (
-                            <div>Plan: {structured.plan}</div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                    {visit.clinicalNotes.length === 0 ? (
-                      <div>Sin notas aÃºn.</div>
+                    {visit.status !== "COMPLETED" ? (
+                      <form action={cancelVisit}>
+                        <input type="hidden" name="visitId" value={visit.id} />
+                        <Button size="sm" variant="outline" type="submit">
+                          Cancelar
+                        </Button>
+                      </form>
                     ) : null}
                   </div>
-                </form>
+                </div>
 
-                <form action={addVisitItem} className="rounded-md border p-3">
+                {visit.status === "IN_PROGRESS" && !canComplete ? (
+                  <p className="mt-2 text-xs text-amber-600">
+                    Para completar falta: {missing.join(", ")}.
+                  </p>
+                ) : null}
+
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-md border p-3">
+                    <div className="text-sm font-medium">Checklist</div>
+                    <ul className="mt-2 space-y-2 text-xs text-muted-foreground">
+                      {visit.checklistItems.map((item) => (
+                        <li key={item.id} className="flex items-center gap-2">
+                          <span
+                            className={
+                              item.isCompleted
+                                ? "line-through text-muted-foreground"
+                                : ""
+                            }
+                          >
+                            {item.label}
+                          </span>
+                          <form action={toggleChecklistItem} className="ml-auto">
+                            <input
+                              type="hidden"
+                              name="checklistId"
+                              value={item.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="completed"
+                              value={item.isCompleted ? "false" : "true"}
+                            />
+                            <Button
+                              size="sm"
+                              variant={
+                                item.isCompleted ? "outline" : "secondary"
+                              }
+                              type="submit"
+                            >
+                              {item.isCompleted ? "Desmarcar" : "Completar"}
+                            </Button>
+                          </form>
+                        </li>
+                      ))}
+                      {visit.checklistItems.length === 0 ? (
+                        <li>Sin checklist.</li>
+                      ) : null}
+                    </ul>
+                  </div>
+
+                  <form
+                    action={addClinicalNote}
+                    className="rounded-md border p-3"
+                  >
+                    <input type="hidden" name="visitId" value={visit.id} />
+                    <Textarea
+                      name="summary"
+                      placeholder="Resumen clinico"
+                      required
+                    />
+                    <Textarea
+                      name="subjective"
+                      placeholder="Subjetivo"
+                      className="mt-2"
+                    />
+                    <Textarea
+                      name="objective"
+                      placeholder="Objetivo"
+                      className="mt-2"
+                    />
+                    <Textarea
+                      name="assessment"
+                      placeholder="Evaluacion"
+                      className="mt-2"
+                    />
+                    <Textarea name="plan" placeholder="Plan" className="mt-2" />
+                    <Button size="sm" type="submit" className="mt-2">
+                      Agregar nota
+                    </Button>
+                    <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                      {visit.clinicalNotes.map((note) => {
+                        const structured = note.structured as
+                          | {
+                              subjective?: string;
+                              objective?: string;
+                              assessment?: string;
+                              plan?: string;
+                            }
+                          | null;
+
+                        return (
+                          <div key={note.id} className="rounded border p-2">
+                            <div className="font-medium">
+                              {note.author.name ?? note.author.email}:{" "}
+                              {note.content}
+                            </div>
+                            {structured?.subjective ? (
+                              <div>Subjetivo: {structured.subjective}</div>
+                            ) : null}
+                            {structured?.objective ? (
+                              <div>Objetivo: {structured.objective}</div>
+                            ) : null}
+                            {structured?.assessment ? (
+                              <div>Evaluacion: {structured.assessment}</div>
+                            ) : null}
+                            {structured?.plan ? (
+                              <div>Plan: {structured.plan}</div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                      {visit.clinicalNotes.length === 0 ? (
+                        <div>Sin notas aun.</div>
+                      ) : null}
+                    </div>
+                  </form>
+
+                  <form action={addVisitItem} className="rounded-md border p-3">
+                    <input type="hidden" name="visitId" value={visit.id} />
+                    <select
+                      name="warehouseId"
+                      className="h-9 rounded-md border bg-background px-2 text-sm"
+                      required
+                      disabled={!inventoryAccess.allowed}
+                    >
+                      <option value="">Deposito...</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      name="productId"
+                      className="mt-2 h-9 rounded-md border bg-background px-2 text-sm"
+                      required
+                      disabled={!inventoryAccess.allowed}
+                    >
+                      <option value="">Producto consumido...</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      name="quantity"
+                      type="number"
+                      min="1"
+                      placeholder="Cantidad"
+                      className="mt-2"
+                      required
+                      disabled={!inventoryAccess.allowed}
+                    />
+                    <Button
+                      size="sm"
+                      type="submit"
+                      className="mt-2"
+                      disabled={!inventoryAccess.allowed}
+                      title={
+                        inventoryAccess.allowed
+                          ? "Registrar consumo"
+                          : inventoryAccess.reason ?? "Inventario bloqueado"
+                      }
+                    >
+                      Registrar consumo
+                    </Button>
+                    {!inventoryAccess.allowed ? (
+                      <p className="mt-2 text-xs text-amber-600">
+                        Inventario bloqueado:{" "}
+                        {inventoryAccess.reason ?? "sin acceso"}
+                      </p>
+                    ) : null}
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {visit.items.map((item) => (
+                        <li key={item.id}>
+                          {item.product.name} x {item.quantity}
+                          {item.warehouse ? ` (${item.warehouse.name})` : ""}
+                        </li>
+                      ))}
+                      {visit.items.length === 0 ? (
+                        <li>Sin consumos aun.</li>
+                      ) : null}
+                    </ul>
+                  </form>
+                </div>
+
+                <form
+                  action={`/api/visits/${visit.id}/attachments`}
+                  method="post"
+                  encType="multipart/form-data"
+                  className="mt-3 rounded-md border p-3"
+                >
                   <input type="hidden" name="visitId" value={visit.id} />
-                  <select
-                    name="warehouseId"
-                    className="h-9 rounded-md border bg-background px-2 text-sm"
-                  >
-                    <option value="">DepÃ³sito...</option>
-                    {warehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    name="productId"
-                    className="mt-2 h-9 rounded-md border bg-background px-2 text-sm"
-                    required
-                  >
-                    <option value="">Producto consumido...</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Input
-                    name="quantity"
-                    type="number"
-                    min="1"
-                    placeholder="Cantidad"
-                    className="mt-2"
+                  <input
+                    name="file"
+                    type="file"
+                    accept="image/*,application/pdf"
                     required
                   />
                   <Button size="sm" type="submit" className="mt-2">
-                    Registrar consumo
+                    Subir adjunto clinico
                   </Button>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {visit.items.map((item) => (
-                      <li key={item.id}>
-                        {item.product.name} x {item.quantity}
-                        {item.warehouse ? ` (${item.warehouse.name})` : ""}
-                      </li>
-                    ))}
-                    {visit.items.length === 0 ? (
-                      <li>Sin consumos aÃºn.</li>
-                    ) : null}
-                  </ul>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Adjuntos: {visit.attachments.length}
+                  </p>
+                  {visit.attachments.length > 0 ? (
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {visit.attachments.map((attachment) => (
+                        <li key={attachment.id}>
+                          {attachment.fileUrl ? (
+                            <a
+                              href={attachment.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline"
+                            >
+                              {attachment.fileName}
+                            </a>
+                          ) : (
+                            attachment.fileName
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </form>
               </div>
-
-              <form
-                action={`/api/visits/${visit.id}/attachments`}
-                method="post"
-                encType="multipart/form-data"
-                className="mt-3 rounded-md border p-3"
-              >
-                <input type="hidden" name="visitId" value={visit.id} />
-                <input name="file" type="file" required />
-                <Button size="sm" type="submit" className="mt-2">
-                  Subir adjunto clÃ­nico
-                </Button>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Adjuntos: {visit.attachments.length}
-                </p>
-                {visit.attachments.length > 0 ? (
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {visit.attachments.map((attachment) => (
-                      <li key={attachment.id}>{attachment.fileName}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </form>
-            </div>
-          ))}
+            );
+          })}
           {visits.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Sin visitas aÃºn.
-            </p>
+            <p className="text-sm text-muted-foreground">Sin visitas aun.</p>
           ) : null}
         </div>
       </div>

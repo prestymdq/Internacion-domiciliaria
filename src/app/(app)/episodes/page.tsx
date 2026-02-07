@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
@@ -283,8 +284,20 @@ async function dischargeEpisode(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
-    const episode = await db.episode.update({
+    const episode = await db.episode.findFirst({
       where: { id: episodeId, tenantId: session.user.tenantId },
+      include: { workflowStage: true },
+    });
+    if (!episode) {
+      throw new Error("EPISODE_NOT_FOUND");
+    }
+
+    if (!episode.workflowStage?.isTerminal) {
+      throw new Error("WORKFLOW_NOT_TERMINAL");
+    }
+
+    const updated = await db.episode.update({
+      where: { id: episode.id },
       data: {
         status: "DISCHARGED",
         endDate: new Date(),
@@ -296,7 +309,7 @@ async function dischargeEpisode(formData: FormData) {
       actorId: session.user.id,
       action: "episode.discharge",
       entityType: "Episode",
-      entityId: episode.id,
+      entityId: updated.id,
     });
   });
 
@@ -353,7 +366,7 @@ export default async function EpisodesPage() {
             ))}
           </select>
           <Input name="startDate" type="date" required />
-          <Input name="diagnosis" placeholder="DiagnÃ³stico" />
+          <Input name="diagnosis" placeholder="Diagnostico" />
           <Textarea name="notes" placeholder="Notas" />
           <Button type="submit" className="md:col-span-4">
             Crear episodio
@@ -364,7 +377,7 @@ export default async function EpisodesPage() {
           <div className="rounded-lg border p-4">
             <h2 className="text-lg font-semibold">Workflow del episodio</h2>
             <p className="text-xs text-muted-foreground">
-              ConfigurÃ¡ los estados operativos del episodio.
+              Configura los estados operativos del episodio.
             </p>
             <form action={createWorkflowStage} className="mt-3 grid gap-2">
               <Input name="name" placeholder="Estado" required />
@@ -384,7 +397,7 @@ export default async function EpisodesPage() {
             <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
               {workflowStages.map((stage) => (
                 <li key={stage.id}>
-                  {stage.name} â orden {stage.sortOrder}
+                  {stage.name} - orden {stage.sortOrder}
                   {stage.isTerminal ? " (terminal)" : ""}
                 </li>
               ))}
@@ -416,7 +429,7 @@ export default async function EpisodesPage() {
               <Input name="frequency" placeholder="Frecuencia (ej: 3/semana)" />
               <Textarea
                 name="objectives"
-                placeholder="Objetivos (uno por lÃ­nea o separados por coma)"
+                placeholder="Objetivos (uno por linea o separados por coma)"
               />
               <Button type="submit" size="sm">
                 Guardar plan
@@ -493,20 +506,35 @@ export default async function EpisodesPage() {
                       : "-"}
                   </td>
                   <td className="px-3 py-2">
-                    {episode.status === "ACTIVE" ? (
-                      <form action={dischargeEpisode}>
-                        <input
-                          type="hidden"
-                          name="episodeId"
-                          value={episode.id}
-                        />
-                        <Button size="sm" variant="outline" type="submit">
-                          Dar alta
-                        </Button>
-                      </form>
-                    ) : (
-                      "-"
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild size="sm" variant="secondary">
+                        <Link href={`/episodes/${episode.id}`}>Ver</Link>
+                      </Button>
+                      {episode.status === "ACTIVE" ? (
+                        <form action={dischargeEpisode}>
+                          <input
+                            type="hidden"
+                            name="episodeId"
+                            value={episode.id}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            type="submit"
+                            disabled={!episode.workflowStage?.isTerminal}
+                            title={
+                              episode.workflowStage?.isTerminal
+                                ? "Dar alta"
+                                : "El workflow debe estar en estado terminal"
+                            }
+                          >
+                            Dar alta
+                          </Button>
+                        </form>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -516,7 +544,7 @@ export default async function EpisodesPage() {
                     className="px-3 py-4 text-sm text-muted-foreground"
                     colSpan={7}
                   >
-                    Sin episodios aÃºn.
+                    Sin episodios aun.
                   </td>
                 </tr>
               ) : null}

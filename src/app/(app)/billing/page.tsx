@@ -238,6 +238,9 @@ export default async function BillingPage() {
             <Link href="/billing/invoices">Facturas</Link>
           </Button>
           <Button asChild size="sm" variant="outline">
+            <Link href="/billing/rules">Reglas</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
             <Link href="/billing/debits">Débitos</Link>
           </Button>
           <Button asChild size="sm" variant="outline">

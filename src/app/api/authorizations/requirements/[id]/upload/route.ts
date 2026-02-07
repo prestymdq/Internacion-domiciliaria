@@ -30,7 +30,7 @@ export async function POST(
 
     const requirement = await db.authorizationRequirement.findFirst({
       where: { id: params.id, tenantId: session.user.tenantId },
-      include: { authorization: true },
+      include: { authorization: true, requirement: true },
     });
 
     return { requirement };
@@ -79,6 +79,40 @@ export async function POST(
         uploadedById: session.user.id,
       },
     });
+
+    const remainingRequired = await db.authorizationRequirement.count({
+      where: {
+        authorizationId: requirement.authorizationId,
+        requirement: { isRequired: true },
+        status: { notIn: ["SUBMITTED", "APPROVED"] },
+      },
+    });
+
+    if (remainingRequired === 0) {
+      const now = new Date();
+      const authorization = await db.authorization.findUnique({
+        where: { id: requirement.authorizationId },
+      });
+
+      if (authorization) {
+        const expired =
+          authorization.endDate && authorization.endDate < now;
+        const canActivate =
+          ["PENDING"].includes(authorization.status) && !expired;
+
+        if (canActivate) {
+          await db.authorization.update({
+            where: { id: authorization.id },
+            data: { status: "ACTIVE" },
+          });
+        } else if (expired && authorization.status !== "EXPIRED") {
+          await db.authorization.update({
+            where: { id: authorization.id },
+            data: { status: "EXPIRED" },
+          });
+        }
+      }
+    }
 
     await logAudit(db, {
       tenantId: session.user.tenantId,
