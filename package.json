@@ -13,7 +13,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:push": "prisma db push",
-    "seed": "prisma db seed"
+    "seed": "prisma db seed",
+    "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
+    "db:restore": "powershell -ExecutionPolicy Bypass -File scripts/restore-db.ps1"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.984.0",

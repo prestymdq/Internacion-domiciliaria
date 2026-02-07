@@ -16,6 +16,14 @@ import {
 import AccessDenied from "@/components/app/access-denied";
 import { withTenant } from "@/lib/rls";
 
+const PAGE_SIZE = 10;
+
+type SearchParams = {
+  q?: string;
+  status?: string;
+  page?: string;
+};
+
 const episodeSchema = z.object({
   patientId: z.string().min(1),
   startDate: z.string().min(1),
@@ -316,7 +324,11 @@ async function dischargeEpisode(formData: FormData) {
   revalidatePath("/episodes");
 }
 
-export default async function EpisodesPage() {
+export default async function EpisodesPage({
+  searchParams,
+}: {
+  searchParams?: SearchParams;
+}) {
   const session = await getServerSession(authOptions);
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
@@ -329,19 +341,64 @@ export default async function EpisodesPage() {
       return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
     }
 
-    const patients = await db.patient.findMany({
-      where: { tenantId },
-      orderBy: { lastName: "asc" },
-    });
-    const workflowStages = await db.episodeWorkflowStage.findMany({
-      where: { tenantId },
-      orderBy: { sortOrder: "asc" },
-    });
-    const episodes = await db.episode.findMany({
-      where: { tenantId },
-      include: { patient: true, carePlan: true, workflowStage: true },
-      orderBy: { createdAt: "desc" },
-    });
+    const query =
+      typeof searchParams?.q === "string" ? searchParams.q.trim() : "";
+    const statusFilter =
+      typeof searchParams?.status === "string"
+        ? searchParams.status.trim()
+        : "";
+    const pageNumber = Math.max(
+      1,
+      Number(searchParams?.page ?? "1") || 1,
+    );
+
+    const where = {
+      tenantId,
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(query
+        ? {
+            patient: {
+              OR: [
+                { firstName: { contains: query, mode: "insensitive" } },
+                { lastName: { contains: query, mode: "insensitive" } },
+                { dni: { contains: query } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    const [patients, workflowStages, episodes, totalEpisodes, episodeOptions] =
+      await Promise.all([
+        db.patient.findMany({
+          where: { tenantId },
+          orderBy: { lastName: "asc" },
+        }),
+        db.episodeWorkflowStage.findMany({
+          where: { tenantId },
+          orderBy: { sortOrder: "asc" },
+        }),
+        db.episode.findMany({
+          where,
+          include: { patient: true, carePlan: true, workflowStage: true },
+          orderBy: { createdAt: "desc" },
+          skip: (pageNumber - 1) * PAGE_SIZE,
+          take: PAGE_SIZE,
+        }),
+        db.episode.count({ where }),
+        db.episode.findMany({
+          where: { tenantId, status: "ACTIVE" },
+          include: { patient: true },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalEpisodes / PAGE_SIZE));
+    const safePage = Math.min(pageNumber, totalPages);
+    const baseParams = new URLSearchParams();
+    if (query) baseParams.set("q", query);
+    if (statusFilter) baseParams.set("status", statusFilter);
 
     return (
       <div className="space-y-6">
@@ -419,7 +476,7 @@ export default async function EpisodesPage() {
                 required
               >
                 <option value="">Episodio...</option>
-                {episodes.map((episode) => (
+                {episodeOptions.map((episode) => (
                   <option key={episode.id} value={episode.id}>
                     {episode.patient.lastName}, {episode.patient.firstName}
                   </option>
@@ -437,6 +494,28 @@ export default async function EpisodesPage() {
             </form>
           </div>
         </div>
+
+        <form method="get" className="flex flex-wrap gap-2">
+          <Input
+            name="q"
+            placeholder="Buscar paciente o DNI"
+            defaultValue={query}
+            className="max-w-xs"
+          />
+          <select
+            name="status"
+            className="h-10 rounded-md border bg-background px-3 text-sm"
+            defaultValue={statusFilter}
+          >
+            <option value="">Estado (todos)</option>
+            <option value="ACTIVE">Activo</option>
+            <option value="DISCHARGED">Alta</option>
+            <option value="CANCELLED">Cancelado</option>
+          </select>
+          <Button type="submit" variant="outline">
+            Aplicar filtros
+          </Button>
+        </form>
 
         <div className="overflow-hidden rounded-lg border">
           <table className="w-full text-sm">
@@ -550,6 +629,39 @@ export default async function EpisodesPage() {
               ) : null}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <div>
+            Pagina {safePage} de {totalPages} ({totalEpisodes} episodios)
+          </div>
+          <div className="flex gap-2">
+            <Button asChild size="sm" variant="outline" disabled={safePage <= 1}>
+              <Link
+                href={`?${new URLSearchParams({
+                  ...Object.fromEntries(baseParams),
+                  page: String(Math.max(1, safePage - 1)),
+                }).toString()}`}
+              >
+                Anterior
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              disabled={safePage >= totalPages}
+            >
+              <Link
+                href={`?${new URLSearchParams({
+                  ...Object.fromEntries(baseParams),
+                  page: String(Math.min(totalPages, safePage + 1)),
+                }).toString()}`}
+              >
+                Siguiente
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     );

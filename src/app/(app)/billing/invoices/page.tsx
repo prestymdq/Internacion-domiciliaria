@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
@@ -15,6 +16,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import AccessDenied from "@/components/app/access-denied";
 import { withTenant } from "@/lib/rls";
+
+const INVOICE_PAGE_SIZE = 15;
+
+type SearchParams = {
+  invoicePage?: string;
+};
 
 const invoiceSchema = z.object({
   deliveryId: z.string().min(1),
@@ -248,7 +255,11 @@ async function createInvoice(formData: FormData) {
   revalidatePath("/billing/invoices");
 }
 
-export default async function InvoicesPage() {
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams?: SearchParams;
+}) {
   const session = await getServerSession(authOptions);
   const tenantId = session?.user?.tenantId;
   if (!tenantId) {
@@ -260,6 +271,11 @@ export default async function InvoicesPage() {
     if (!access.allowed) {
       return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
     }
+
+    const invoicePageNumber = Math.max(
+      1,
+      Number(searchParams?.invoicePage ?? "1") || 1,
+    );
 
     const payers = await db.payer.findMany({
       where: { tenantId },
@@ -285,11 +301,22 @@ export default async function InvoicesPage() {
       },
       orderBy: { createdAt: "desc" },
     });
-    const invoices = await db.invoice.findMany({
-      where: { tenantId },
-      include: { payer: true, patient: true, authorization: true, plan: true },
-      orderBy: { createdAt: "desc" },
-    });
+    const [invoices, totalInvoices] = await Promise.all([
+      db.invoice.findMany({
+        where: { tenantId },
+        include: { payer: true, patient: true, authorization: true, plan: true },
+        orderBy: { createdAt: "desc" },
+        skip: (invoicePageNumber - 1) * INVOICE_PAGE_SIZE,
+        take: INVOICE_PAGE_SIZE,
+      }),
+      db.invoice.count({ where: { tenantId } }),
+    ]);
+
+    const invoiceTotalPages = Math.max(
+      1,
+      Math.ceil(totalInvoices / INVOICE_PAGE_SIZE),
+    );
+    const invoiceSafePage = Math.min(invoicePageNumber, invoiceTotalPages);
 
     return (
       <div className="space-y-8">
@@ -510,6 +537,41 @@ export default async function InvoicesPage() {
                 ) : null}
               </tbody>
             </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div>
+              Pagina {invoiceSafePage} de {invoiceTotalPages} (
+              {totalInvoices} facturas)
+            </div>
+            <div className="flex gap-2">
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                disabled={invoiceSafePage <= 1}
+              >
+                <Link
+                  href={`?invoicePage=${Math.max(1, invoiceSafePage - 1)}`}
+                >
+                  Anterior
+                </Link>
+              </Button>
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                disabled={invoiceSafePage >= invoiceTotalPages}
+              >
+                <Link
+                  href={`?invoicePage=${Math.min(
+                    invoiceTotalPages,
+                    invoiceSafePage + 1,
+                  )}`}
+                >
+                  Siguiente
+                </Link>
+              </Button>
+            </div>
           </div>
         </section>
       </div>
