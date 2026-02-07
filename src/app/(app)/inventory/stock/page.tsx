@@ -59,11 +59,37 @@ async function createMovement(formData: FormData) {
       throw new Error("INVALID_QUANTITY");
     }
 
+    const warehouse = await db.warehouse.findFirst({
+      where: { id: parsed.data.warehouseId, tenantId: session.user.tenantId },
+    });
+    if (!warehouse) {
+      throw new Error("WAREHOUSE_NOT_FOUND");
+    }
+
+    const product = await db.product.findFirst({
+      where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
+    }
+
+    if (parsed.data.batchId) {
+      const batch = await db.batch.findFirst({
+        where: { id: parsed.data.batchId, tenantId: session.user.tenantId },
+      });
+      if (!batch) {
+        throw new Error("BATCH_NOT_FOUND");
+      }
+      if (batch.productId !== product.id) {
+        throw new Error("BATCH_PRODUCT_MISMATCH");
+      }
+    }
+
     const movement = await db.stockMovement.create({
       data: {
         tenantId: session.user.tenantId,
-        warehouseId: parsed.data.warehouseId,
-        productId: parsed.data.productId,
+        warehouseId: warehouse.id,
+        productId: product.id,
         batchId: parsed.data.batchId || null,
         type: parsed.data.type,
         quantity,
@@ -109,10 +135,17 @@ async function createBatch(formData: FormData) {
       throw new Error("VALIDATION_ERROR");
     }
 
+    const product = await db.product.findFirst({
+      where: { id: parsed.data.productId, tenantId: session.user.tenantId },
+    });
+    if (!product) {
+      throw new Error("PRODUCT_NOT_FOUND");
+    }
+
     const batch = await db.batch.create({
       data: {
         tenantId: session.user.tenantId,
-        productId: parsed.data.productId,
+        productId: product.id,
         code: parsed.data.code.trim(),
         expiryDate: parsed.data.expiryDate
           ? new Date(parsed.data.expiryDate)
