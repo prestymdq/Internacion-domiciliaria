@@ -2,11 +2,15 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { stripe } from "@/lib/stripe";
-import { assertTenantModuleAccess } from "@/lib/tenant-access";
+import {
+  assertTenantModuleAccess,
+  getTenantModuleAccess,
+} from "@/lib/tenant-access";
 import { PlanTier } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { withTenant } from "@/lib/rls";
+import AccessDenied from "@/components/app/access-denied";
 
 const priceMap: Record<PlanTier, string> = {
   STARTER: process.env.STRIPE_PRICE_STARTER ?? "",
@@ -165,7 +169,14 @@ export default async function BillingPage() {
   }
 
   return withTenant(session.user.tenantId, async (db) => {
-    await assertTenantModuleAccess(db, session.user.tenantId, "BILLING");
+    const access = await getTenantModuleAccess(
+      db,
+      session.user.tenantId,
+      "BILLING",
+    );
+    if (!access.allowed) {
+      return <AccessDenied reason={access.reason ?? "Sin acceso."} />;
+    }
 
     const tenant = await db.tenant.findUnique({
       where: { id: session.user.tenantId },
